@@ -1,6 +1,6 @@
 # CleanRoute
 
-CleanRoute is a pollution-aware route planning platform. This repository currently contains the Phase 1 foundation: a Spring Boot backend, React/TypeScript frontend, and PostgreSQL local environment. Route planning, authentication, pollution scoring, and forecasting are not implemented yet.
+CleanRoute is a pollution-aware route planning platform. The repository includes the Phase 1 foundation and Phase 2 account, preferences, and saved-user-data APIs. Route calculation, pollution scoring, and forecasting are not implemented yet.
 
 ## Requirements
 
@@ -15,7 +15,7 @@ CleanRoute is a pollution-aware route planning platform. This repository current
    cp .env.example .env
    ```
 
-   Edit `.env` and set `POSTGRES_PASSWORD` to a password of your choice. The template deliberately contains no password value. Keep `.env` private; it is ignored by Git.
+   Edit `.env` and set `POSTGRES_PASSWORD` to a password of your choice. The JWT value in the template is only a development example; replace it with a random secret of at least 32 bytes for any shared environment. Keep `.env` private; it is ignored by Git.
 
    If host port `5432` is already in use, change `POSTGRES_PORT` in `.env` (for example, to `55432`). The backend connects to PostgreSQL over the Compose network, so this only changes the port exposed on your computer.
 
@@ -45,6 +45,7 @@ Then, from `backend/`, run (replace the password with the value you chose):
 SPRING_DATASOURCE_URL=jdbc:postgresql://localhost:5432/cleanroute \
 SPRING_DATASOURCE_USERNAME=cleanroute \
 SPRING_DATASOURCE_PASSWORD='your-local-password' \
+JWT_SECRET='change-this-to-a-random-secret-of-at-least-32-bytes' \
 mvn spring-boot:run
 ```
 
@@ -78,13 +79,23 @@ The frontend shell is self-contained and does not need a running backend to rend
 
 ## Configuration
 
-See `.env.example` for Compose ports and PostgreSQL settings. Set a non-empty `POSTGRES_PASSWORD` in `.env`; no password is supplied in the repository. Backend settings can also use `SPRING_DATASOURCE_URL`, `SPRING_DATASOURCE_USERNAME`, `SPRING_DATASOURCE_PASSWORD`, and `SERVER_PORT`. No provider credentials are needed in Phase 1.
+See `.env.example` for Compose ports, PostgreSQL settings, and `JWT_SECRET`. Set a non-empty `POSTGRES_PASSWORD` in `.env`. Backend settings can also use `SPRING_DATASOURCE_URL`, `SPRING_DATASOURCE_USERNAME`, `SPRING_DATASOURCE_PASSWORD`, `JWT_SECRET`, `JWT_EXPIRATION_MS`, and `SERVER_PORT`. No provider credentials are needed.
 
 ## Current API
 
 | Method | Path | Purpose |
 |---|---|---|
 | `GET` | `/api/health` | Backend liveness response |
+| `POST` | `/api/auth/register` | Register a user and return a bearer token |
+| `POST` | `/api/auth/login` | Authenticate and return a bearer token |
+| `GET`, `PUT` | `/api/users/me` | Read/update the authenticated user's profile |
+| `PUT` | `/api/users/me/preferences` | Read/update user preferences (returned by GET /me) |
+| `POST`, `GET`, `DELETE` | `/api/places` | Create, list, and delete the current user's saved places |
+| `POST` | `/api/routes/save` | Save a supplied route record; does not calculate routes |
+| `GET`, `DELETE` | `/api/routes/saved` | List/delete the current user's saved routes |
+| `GET` | `/api/routes/history` | Retrieve the current user's route history |
+
+Pass the login/register token as `Authorization: Bearer <token>` for user-specific endpoints. Registration requires `email`, `password` (8–72 characters), and `displayName`. Passwords are stored as BCrypt hashes. The Phase 2 schema is created only by Flyway migrations and Hibernate validates it at startup.
 
 ## Project structure
 
@@ -96,6 +107,6 @@ docker-compose.yml
 .env.example
 ```
 
-## Phase 1 limitations
+## Current limitations
 
-This phase intentionally includes no authentication, route calculation, pollution engine, forecast service, or real external API integrations. The database and Flyway integration are configured, but no business schema migrations exist yet. Redis is not required.
+Route calculation, pollution engine, forecasts, notifications, and external provider integrations remain future phases. Route history is modeled for later use and currently has retrieval only. Redis is not required.
