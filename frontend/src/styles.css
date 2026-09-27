@@ -1,0 +1,14 @@
+:root { font-family: Inter, ui-sans-serif, system-ui, sans-serif; color: #173d32; background: #f4f7f2; font-synthesis: none; text-rendering: optimizeLegibility; -webkit-font-smoothing: antialiased; }
+* { box-sizing: border-box; }
+body { margin: 0; min-width: 320px; min-height: 100vh; }
+.page-shell { min-height: 100vh; display: grid; place-items: center; padding: 32px 20px; background: radial-gradient(ellipse at 50% 20%, #e4efe3 0, #f4f7f2 55%); }
+.status-card { width: min(100%, 540px); padding: 58px 56px 52px; text-align: center; background: rgba(255,255,255,.86); border: 1px solid #e1e9df; border-radius: 24px; box-shadow: 0 24px 70px rgba(35,73,55,.09); }
+.brand-mark { display: grid; place-items: center; width: 54px; height: 54px; margin: 0 auto 28px; border-radius: 17px; background: #dff1df; color: #28764d; font: 800 27px ui-sans-serif,system-ui,sans-serif; }
+.eyebrow { margin: 0 0 14px; color: #64836e; font-size: 11px; font-weight: 700; letter-spacing: .13em; }
+h1 { margin: 0; font: 800 clamp(30px,7vw,42px)/1.15 ui-sans-serif,system-ui,sans-serif; letter-spacing: -.045em; }
+.intro { max-width: 360px; margin: 17px auto 28px; color: #64796c; font-size: 15px; line-height: 1.7; }
+.service-status { display: inline-flex; align-items: center; gap: 9px; padding: 11px 15px; border: 1px solid #d8eade; border-radius: 999px; background: #f4faf4; color: #426950; font-size: 13px; font-weight: 600; }
+.status-dot { width: 8px; height: 8px; border-radius: 50%; background: #40a66a; box-shadow: 0 0 0 4px #e0f2e5; }
+footer { position: fixed; bottom: 22px; color: #8b9b8e; font-size: 12px; }
+footer span { padding: 0 5px; }
+@media (max-width: 480px) { .status-card { padding: 44px 25px; } }
