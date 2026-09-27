@@ -16,9 +16,9 @@ Add the initial relational schema and indexes through Flyway migrations. Impleme
 
 ## Phase 3 — Provider adapters, demo data, and ingestion
 
-Define AQI, weather, traffic, and routing provider interfaces and provider-neutral models. Implement deterministic mock adapters and demo seeding for at least seven days of 15-minute environmental history, with varying daily/weekly patterns. Add an independently failing, configurable scheduled ingestion pipeline and stale/missing/rate-limited provider handling.
+Define AQI, weather, traffic, and routing provider interfaces and provider-neutral models. Implement deterministic mock adapters and demo seeding for at least seven days of 15-minute environmental history, with varying daily/weekly patterns. Add an independently failing, configurable scheduled ingestion pipeline with bounded provider timeouts, provider/cell/value/timestamp validation, persisted freshness state, and bounded rate-limit backoff. The mock routing provider returns a generated path only; route scoring and ranking remain out of scope.
 
-**Done when:** the demo works with no API keys, scheduled ingestion persists observations, and one provider failure does not block the others.
+**Done when:** the demo works with no API keys, scheduled ingestion persists explicitly labeled observations, one provider timeout/failure does not block other providers, rate limits are bounded/backed off, and provider freshness is persisted.
 
 ## Phase 4 — Pollution model and scoring
 

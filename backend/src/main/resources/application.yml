@@ -18,3 +18,11 @@ app:
   jwt:
     secret: ${JWT_SECRET:}
     expiration-ms: ${JWT_EXPIRATION_MS:86400000}
+  observations:
+    ingestion-interval-ms: ${OBSERVATION_INGESTION_INTERVAL_MS:900000}
+    initial-delay-ms: ${OBSERVATION_INGESTION_INITIAL_DELAY_MS:900000}
+    provider-timeout-ms: ${OBSERVATION_PROVIDER_TIMEOUT_MS:5000}
+    rate-limit-backoff-ms: ${OBSERVATION_RATE_LIMIT_BACKOFF_MS:60000}
+    aqi-api-key: ${AQI_API_KEY:}
+    weather-api-key: ${WEATHER_API_KEY:}
+    traffic-api-key: ${TRAFFIC_API_KEY:}

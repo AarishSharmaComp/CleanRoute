@@ -52,8 +52,9 @@ Keep the business services independent of Spring and provider-specific SDKs wher
 
 ## Data and time model
 
-- Store observations as timestamped measurements associated with a geographic grid cell (initially a configurable latitude/longitude grid cell identifier and center coordinate). This avoids treating an entire city as one sensor reading and leaves a migration path to PostGIS geometry/geography.
-- Store pollutant values, source/provider, observed time, ingestion time, and quality/freshness metadata. Weather and traffic observations use corresponding timestamped records.
+- Store observations as timestamped measurements associated with a geographic cell. Phase 3 currently seeds three fixed demo cells with deterministic identifiers and latitude/longitude center coordinates; it does not yet support configurable or dynamic cell lookup or arbitrary coordinate-based area queries. The cell identifier and center-coordinate model leaves room to add configurable grid coverage later, and a migration path to PostGIS geometry/geography if spatial queries eventually require it.
+- Store pollutant values, source/provider, observed time, ingestion time, generated-data identity, and per-provider/per-cell last-attempt, last-success, and last-failure freshness state. Weather and traffic observations use corresponding timestamped records.
+- Normalize provider pollutant concentrations to µg/m³ for PM2.5, PM10, NO₂, SO₂, and O₃ and mg/m³ for CO. AQI is retained on the provider's index scale; responses expose these units. Reject provider timestamps more than two minutes ahead of the application clock to allow ordinary clock skew without accepting future observations.
 - Store forecast rows separately from observations, with target timestamp, generated timestamp, model/version, predicted values, and quality indicator. API responses clearly label observed versus predicted values.
 - Normalize forecast and demo-series timestamps to 15-minute interval boundaries. Seed at least seven days of generated history for demo mode; retain more in production according to configuration.
 - Add indexes for location/grid cell and timestamp; use a composite `(grid_cell_id, observed_at)` index for observation and forecast lookups. PostgreSQL spatial indexing can be introduced with PostGIS when actual geographic search needs arise.
@@ -74,7 +75,9 @@ Use Spring Security with BCrypt password hashing and stateless token authenticat
 
 ## Provider and scheduler behavior
 
-Scheduled ingestion is configurable, with a 15-minute default. Each provider adapter has bounded timeouts and translates rate limits, missing values, and provider errors to typed outcomes. A failed provider must not prevent other sources from recording data. Keep last-success/freshness state and log failures without logging secrets. Start with a single application scheduler; add a job queue only if workload requires it.
+Scheduled ingestion is configurable, with a 15-minute default and a one-minute minimum. Each provider adapter runs in an isolated bounded worker lane with a configurable timeout (five-second default); timeouts interrupt/cancel calls, and bounded queues prevent worker growth. Typed timeout, temporary-failure, and rate-limit outcomes are isolated per provider/cell. Rate limits apply a bounded in-memory backoff (one-minute default, five-minute maximum) without a retry queue. Persist last-attempt, last-success, and last-failure state per provider/cell. Failures are logged without exception messages or secrets. Startup seeds seven days of deterministic generated observations across the fixed demo cells. Current AQI is marked stale after 30 minutes.
+
+The `RoutingProvider` interface returns a provider-neutral generated path; the local mock returns a straight line between supplied coordinates. It does not rank alternatives or select routes based on pollution. Real routing integrations and route recommendations remain later-phase work.
 
 ## Frontend
 
@@ -101,7 +104,7 @@ Use validated request/response DTOs, pagination for history, consistent error bo
 
 ## Local operation and configuration
 
-Docker Compose starts PostgreSQL, Spring Boot, and the frontend in demo mode. `.env.example` documents non-secret defaults and optional `AQI_API_KEY`, `WEATHER_API_KEY`, `TRAFFIC_API_KEY`, and `MAPS_API_KEY`; secrets are supplied through the local environment and ignored env files. Health checks gate service readiness. The application should remain usable without external API credentials.
+Docker Compose starts PostgreSQL, Spring Boot, and the frontend in demo mode. `.env.example` documents non-secret defaults and optional `AQI_API_KEY`, `WEATHER_API_KEY`, and `TRAFFIC_API_KEY`; mock providers run without credentials, and any future provider keys are supplied through the local environment and ignored env files. Health checks gate service readiness. The application should remain usable without external API credentials.
 
 ## Quality attributes
 
