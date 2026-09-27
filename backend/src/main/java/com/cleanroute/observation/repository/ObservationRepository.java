@@ -22,6 +22,11 @@ public class ObservationRepository {
         Boolean exists = jdbc.queryForObject("SELECT EXISTS (SELECT 1 FROM geographic_cell WHERE cell_id=?)", Boolean.class, cellId);
         return Boolean.TRUE.equals(exists);
     }
+
+    public List<GeographicCell> cells() {
+        return jdbc.query("SELECT cell_id,center_latitude,center_longitude FROM geographic_cell ORDER BY cell_id",
+                (rs, n) -> new GeographicCell(rs.getString("cell_id"), rs.getDouble("center_latitude"), rs.getDouble("center_longitude")));
+    }
     public void save(PollutionObservation o) {
         try { jdbc.update("INSERT INTO pollution_observation(id,cell_id,observed_at,aqi,pm25,pm10,no2,so2,co,o3,provider,generated) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
                 java.util.UUID.randomUUID(), o.cellId(), Timestamp.from(o.observedAt()), o.aqi(), o.pm25(), o.pm10(), o.no2(), o.so2(), o.co(), o.o3(), o.provider(), o.generated()); } catch (DuplicateKeyException ignored) { }

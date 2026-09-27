@@ -30,13 +30,13 @@ Implement interval-aware pollution assessments from stored cell observations. `P
 
 Add historical pattern aggregation and a replaceable forecast-provider interface. Implement 15-minute predictions from time-of-day/day-of-week historical averages with recent weighting and coverage-based quality indicators. Expose current/history/forecast APIs and preserve observed/predicted distinctions.
 
-**Done when:** forecasts can be requested for future intervals, timestamps align to 15-minute boundaries, and tests cover sparse history and quality reporting.
+**Done when:** forecasts can be requested for future intervals, timestamps align to 15-minute boundaries, and tests cover sparse history and quality reporting. Implemented with persisted predicted rows, a replaceable historical-average provider, predicted/observed labels, bounded forecast ranges, and sparse-history quality reporting.
 
 ## Phase 6 — Routing and preference ranking
 
 Implement `RouteService` and provider-neutral route alternatives. Add route segment sampling, expected pollution exposure by passage time, and different FASTEST, CLEANEST, and BALANCED ranking weights. Return explanatory score components and reasons.
 
-**Done when:** mock alternatives produce distinguishable ranking under each preference and route results include geometry, duration, distance, exposure, and context.
+**Done when:** mock alternatives produce distinguishable ranking under each preference and route results include geometry, duration, distance, exposure, and context. Implemented for FASTEST, CLEANEST, and BALANCED with authenticated owner-scoped calculation retrieval, passage-time pollution samples, explanations, and generated mock alternatives. JOGGER/CYCLIST suitability remains Phase 7.
 
 ## Phase 7 — Jogger and cyclist recommendations
 

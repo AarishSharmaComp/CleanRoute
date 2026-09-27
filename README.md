@@ -1,6 +1,6 @@
 # CleanRoute
 
-CleanRoute is a pollution-aware route planning platform. The repository includes the Phase 1 foundation, Phase 2 account and saved-user-data APIs, the Phase 3 environmental observation foundation, and the Phase 4 comparative pollution scoring baseline. Route calculation, route ranking, and forecasting are not implemented yet.
+CleanRoute is a pollution-aware route planning platform. The repository includes the Phase 1 foundation, Phase 2 account and saved-user-data APIs, the Phase 3 environmental observation foundation, the Phase 4 comparative pollution scoring baseline, the Phase 5 historical forecast baseline, and Phase 6 mock route alternatives and preference ranking.
 
 ## Requirements
 
@@ -97,12 +97,20 @@ See `.env.example` for Compose ports, PostgreSQL settings, `JWT_SECRET`, and obs
 | `GET` | `/api/aqi/current?cell=demo-delhi-central` | Latest AQI observation for a cell; includes provider, generated flag, stale flag, timestamp, and units |
 | `GET` | `/api/aqi/history?cell=...&start=...&end=...&interval=15&limit=100&offset=0` | Historical AQI observations for a known cell; ISO-8601 timestamps, maximum 90-day range and 1,000 rows per page |
 | `GET` | `/api/pollution/score?cell=...&at=...&durationSeconds=...&distanceMeters=...&mode=WALK` | Comparative score for one stored 15-minute observation interval and supplied trip context; returns component scores, missing inputs, provenance, and caveats |
+| `GET` | `/api/pollution/forecast?cell=...&from=...&interval=15&count=4` | Generate and persist up to 96 future 15-minute pollution predictions from historical patterns, with quality and predicted-data labels |
+| `GET` | `/api/pollution/forecast/history?cell=...&from=...&to=...&limit=100` | Retrieve persisted forecast rows for a cell and bounded time range |
+| `POST` | `/api/routes/calculate` | Authenticated route calculation returning mock alternatives ranked by FASTEST, CLEANEST, or BALANCED preference |
+| `GET` | `/api/routes/{id}` | Retrieve the authenticated user's saved route calculation |
 
 Pass the login/register token as `Authorization: Bearer <token>` for user-specific endpoints. Registration requires `email`, `password` (8–72 characters), and `displayName`. Passwords are stored as BCrypt hashes. The Phase 2 schema is created only by Flyway migrations and Hibernate validates it at startup.
 
 AQI history returns 404 for an unknown cell and an empty list for a known cell with no observations. AQI concentrations use canonical `µg/m³` for PM2.5, PM10, NO₂, SO₂, and O₃, and `mg/m³` for CO; AQI remains on the provider's index scale. The current demo cell IDs are `demo-delhi-central`, `demo-delhi-south`, and `demo-delhi-north`.
 
 The Phase 4 pollution score is a 0–100 comparative demo estimate; higher values indicate greater modeled burden. Available pollutant concentrations are normalized against configurable reference values and averaged. Provider AQI is used only when all individual pollutant concentrations are missing. Route duration, distance, and travel mode adjust the exposure component; available traffic and weather context are combined with configurable weights, with missing context excluded. Defaults are in `application.yml` under `app.pollution.scoring`. These reference values are model baselines, not regulatory limits or validated health guidance. The endpoint scores a single stored observation interval and does not calculate or rank routes.
+
+Phase 5 forecasts use an interchangeable forecast-provider interface. The default historical baseline matches the 15-minute time slot and weekday where available, uses exponentially recency-weighted means, falls back to the same time-of-day or available history when sparse, and reports sample-based quality. Forecasts are separate persisted records and responses identify them as `PREDICTED` (`observed: false`, `predicted: true`). Missing pollutant measurements remain null. This is not an advanced or validated forecasting model.
+
+Phase 6 route calculations use the provider-neutral routing interface; its deterministic mock returns direct and two detour alternatives. Segment midpoints are assigned to the nearest of the three fixed demo cells and forecast for estimated passage intervals. FASTEST ranks duration, CLEANEST ranks distance-weighted expected pollution exposure, and BALANCED combines duration efficiency and pollution cleanliness equally. Responses include geometry, duration, distance, exposure, component scores, reasons, and generated-data provenance. Calculation requests and results belong to the authenticated user. JOGGER/CYCLIST preference suitability rules and the map/dashboard UI remain later phases.
 
 ## Project structure
 
@@ -116,4 +124,4 @@ docker-compose.yml
 
 ## Current limitations
 
-Route calculation and ranking, forecasts, notifications, and real external provider integrations remain future phases. Phase 3 defines a provider-neutral routing interface with a straight-line generated mock path, but it does not rank or select routes. Phase 4 adds a transparent comparative pollution score only. Provider freshness is stored per provider and cell; current AQI is marked stale after 30 minutes. Route history is modeled for later use and currently has retrieval only. Redis is not required.
+The historical forecast baseline is not a validated predictive model. Route paths are deterministic generated mock alternatives, and their pollution context uses nearest-cell matching against three fixed demo cells rather than dynamic geographic lookup. Ranking supports FASTEST, CLEANEST, and BALANCED; JOGGER/CYCLIST suitability recommendations, route search UI, notifications, and real external provider integrations remain later phases. Provider freshness is stored per provider and cell; current AQI is marked stale after 30 minutes. Redis is not required.
