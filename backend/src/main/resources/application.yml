@@ -26,3 +26,16 @@ app:
     aqi-api-key: ${AQI_API_KEY:}
     weather-api-key: ${WEATHER_API_KEY:}
     traffic-api-key: ${TRAFFIC_API_KEY:}
+  pollution:
+    scoring:
+      aqi-index-max: 500
+      pm25-reference: 35
+      pm10-reference: 50
+      no2-reference: 40
+      so2-reference: 20
+      co-reference: 4
+      o3-reference: 100
+      pollution-weight: 0.75
+      traffic-weight: 0.15
+      weather-weight: 0.10
+      wind-reference-mps: 10

@@ -22,7 +22,7 @@ Define AQI, weather, traffic, and routing provider interfaces and provider-neutr
 
 ## Phase 4 — Pollution model and scoring
 
-Implement interval/grid-aware pollution domain models, the modular `PollutionEngine`, transparent configurable `PollutionScoreService`, and input-quality/fallback handling. Add component explanations and explicit caveats in API outputs.
+Implement interval-aware pollution assessments from stored cell observations. `PollutionEngine` normalizes available pollutant measurements against configurable reference values, excludes missing values, reports coverage, and uses AQI only as a documented fallback when all individual pollutants are absent. `PollutionScoreService` combines the assessment with supplied duration, distance, mode, and available traffic/weather context using configurable weights. Expose component explanations, provenance, score direction, and explicit limitations through a score API. Do not calculate or rank alternative routes in this phase.
 
 **Done when:** component calculations, missing values, and score ranges are documented and covered by unit tests.
 

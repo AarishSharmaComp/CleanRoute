@@ -61,8 +61,9 @@ Keep the business services independent of Spring and provider-specific SDKs wher
 
 ## Scoring and forecasting
 
-- `PollutionEngine` converts available measurements into a documented normalized pollution burden, handling absent pollutants without fabricating values.
-- `PollutionScoreService` combines exposure, route time/distance, traffic, weather, and mode using an explicit configurable formula. Display score direction and component explanations in the API. Scores are comparative estimates and must not be presented as validated medical guidance.
+- Phase 4 `PollutionEngine` normalizes available pollutant concentrations against configurable reference values and averages only present measurements; if all individual concentrations are absent, it can fall back to provider AQI. It reports coverage and missing values without treating them as zero.
+- Phase 4 `PollutionScoreService` combines the pollution burden adjusted by interval-specific duration, distance, and travel mode with available traffic and weather context using configurable weights. The authenticated-data boundary is unchanged; `/api/pollution/score` exposes an environmental estimate without personal route geometry. It reports direction, component scores, provenance, missing inputs, and caveats. This comparative demo estimate is not validated health guidance and does not rank or recommend routes.
+- Forecast storage, aggregation, and prediction are not implemented in Phase 4; they remain Phase 5 work.
 - `RouteScoringService` applies genuinely different preference weights for FASTEST, CLEANEST, BALANCED, JOGGER, and CYCLIST. Return component scores and recommendation reasons for explainability.
 - `PollutionForecastService` implements a replaceable predictor interface. The initial predictor uses historical same-time/day averages with a weighted recent baseline and reports a quality/confidence indicator based on sample coverage and recency. It does not claim an ML model.
 - Route exposure samples expected conditions along route segments at the estimated time of passage, using forecast data where available and a clearly marked fallback when unavailable.

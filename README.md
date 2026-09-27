@@ -1,6 +1,6 @@
 # CleanRoute
 
-CleanRoute is a pollution-aware route planning platform. The repository includes the Phase 1 foundation, Phase 2 account and saved-user-data APIs, and the Phase 3 environmental observation foundation. Route calculation, pollution scoring, and forecasting are not implemented yet.
+CleanRoute is a pollution-aware route planning platform. The repository includes the Phase 1 foundation, Phase 2 account and saved-user-data APIs, the Phase 3 environmental observation foundation, and the Phase 4 comparative pollution scoring baseline. Route calculation, route ranking, and forecasting are not implemented yet.
 
 ## Requirements
 
@@ -96,10 +96,13 @@ See `.env.example` for Compose ports, PostgreSQL settings, `JWT_SECRET`, and obs
 | `GET` | `/api/routes/history` | Retrieve the current user's route history |
 | `GET` | `/api/aqi/current?cell=demo-delhi-central` | Latest AQI observation for a cell; includes provider, generated flag, stale flag, timestamp, and units |
 | `GET` | `/api/aqi/history?cell=...&start=...&end=...&interval=15&limit=100&offset=0` | Historical AQI observations for a known cell; ISO-8601 timestamps, maximum 90-day range and 1,000 rows per page |
+| `GET` | `/api/pollution/score?cell=...&at=...&durationSeconds=...&distanceMeters=...&mode=WALK` | Comparative score for one stored 15-minute observation interval and supplied trip context; returns component scores, missing inputs, provenance, and caveats |
 
 Pass the login/register token as `Authorization: Bearer <token>` for user-specific endpoints. Registration requires `email`, `password` (8–72 characters), and `displayName`. Passwords are stored as BCrypt hashes. The Phase 2 schema is created only by Flyway migrations and Hibernate validates it at startup.
 
 AQI history returns 404 for an unknown cell and an empty list for a known cell with no observations. AQI concentrations use canonical `µg/m³` for PM2.5, PM10, NO₂, SO₂, and O₃, and `mg/m³` for CO; AQI remains on the provider's index scale. The current demo cell IDs are `demo-delhi-central`, `demo-delhi-south`, and `demo-delhi-north`.
+
+The Phase 4 pollution score is a 0–100 comparative demo estimate; higher values indicate greater modeled burden. Available pollutant concentrations are normalized against configurable reference values and averaged. Provider AQI is used only when all individual pollutant concentrations are missing. Route duration, distance, and travel mode adjust the exposure component; available traffic and weather context are combined with configurable weights, with missing context excluded. Defaults are in `application.yml` under `app.pollution.scoring`. These reference values are model baselines, not regulatory limits or validated health guidance. The endpoint scores a single stored observation interval and does not calculate or rank routes.
 
 ## Project structure
 
@@ -113,4 +116,4 @@ docker-compose.yml
 
 ## Current limitations
 
-Route calculation and routing-provider integration, pollution scoring, forecasts, notifications, and real external provider integrations remain future phases. Phase 3 defines a provider-neutral routing interface with a straight-line generated mock path, but it does not rank or select routes. Provider freshness is stored per provider and cell; current AQI is marked stale after 30 minutes. Route history is modeled for later use and currently has retrieval only. Redis is not required.
+Route calculation and ranking, forecasts, notifications, and real external provider integrations remain future phases. Phase 3 defines a provider-neutral routing interface with a straight-line generated mock path, but it does not rank or select routes. Phase 4 adds a transparent comparative pollution score only. Provider freshness is stored per provider and cell; current AQI is marked stale after 30 minutes. Route history is modeled for later use and currently has retrieval only. Redis is not required.

@@ -7,6 +7,7 @@ import org.springframework.stereotype.Repository;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 
 @Repository
 public class ObservationRepository {
@@ -47,5 +48,31 @@ public class ObservationRepository {
                         (Integer) rs.getObject("aqi"), (Double) rs.getObject("pm25"), (Double) rs.getObject("pm10"),
                         (Double) rs.getObject("no2"), (Double) rs.getObject("so2"), (Double) rs.getObject("co"),
                         (Double) rs.getObject("o3"), rs.getString("provider"), rs.getBoolean("generated")), cellId);
+    }
+
+    public Optional<PollutionObservation> pollutionAt(String cellId, Instant observedAt) {
+        return jdbc.query("SELECT cell_id,observed_at,aqi,pm25,pm10,no2,so2,co,o3,provider,generated FROM pollution_observation WHERE cell_id=? AND observed_at=? ORDER BY generated ASC, ingested_at DESC LIMIT 1",
+                (rs, n) -> new PollutionObservation(rs.getString("cell_id"), rs.getTimestamp("observed_at").toInstant(),
+                        (Integer) rs.getObject("aqi"), (Double) rs.getObject("pm25"), (Double) rs.getObject("pm10"),
+                        (Double) rs.getObject("no2"), (Double) rs.getObject("so2"), (Double) rs.getObject("co"),
+                        (Double) rs.getObject("o3"), rs.getString("provider"), rs.getBoolean("generated")),
+                cellId, Timestamp.from(observedAt)).stream().findFirst();
+    }
+
+    public Optional<WeatherObservation> weatherAt(String cellId, Instant observedAt) {
+        return jdbc.query("SELECT cell_id,observed_at,temperature_c,humidity_percent,wind_speed_mps,wind_direction_degrees,precipitation_mm,weather_condition,provider,generated FROM weather_observation WHERE cell_id=? AND observed_at=? ORDER BY generated ASC, ingested_at DESC LIMIT 1",
+                (rs, n) -> new WeatherObservation(rs.getString("cell_id"), rs.getTimestamp("observed_at").toInstant(),
+                        (Double) rs.getObject("temperature_c"), (Double) rs.getObject("humidity_percent"),
+                        (Double) rs.getObject("wind_speed_mps"), (Double) rs.getObject("wind_direction_degrees"),
+                        (Double) rs.getObject("precipitation_mm"), rs.getString("weather_condition"),
+                        rs.getString("provider"), rs.getBoolean("generated")), cellId, Timestamp.from(observedAt)).stream().findFirst();
+    }
+
+    public Optional<TrafficObservation> trafficAt(String cellId, Instant observedAt) {
+        return jdbc.query("SELECT cell_id,observed_at,traffic_level,congestion_factor,average_speed_kph,provider,generated FROM traffic_observation WHERE cell_id=? AND observed_at=? ORDER BY generated ASC, ingested_at DESC LIMIT 1",
+                (rs, n) -> new TrafficObservation(rs.getString("cell_id"), rs.getTimestamp("observed_at").toInstant(),
+                        rs.getString("traffic_level"), (Double) rs.getObject("congestion_factor"),
+                        (Double) rs.getObject("average_speed_kph"), rs.getString("provider"), rs.getBoolean("generated")),
+                cellId, Timestamp.from(observedAt)).stream().findFirst();
     }
 }
