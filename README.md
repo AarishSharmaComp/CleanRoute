@@ -75,11 +75,11 @@ npm test
 npm run build
 ```
 
-The frontend provides route planning, current conditions, observed/forecast AQI charting, a Leaflet map, saved places and routes, calculation history, preferences, and notifications. It calls the backend using `VITE_API_BASE_URL` (default `http://localhost:8080`).
+The frontend provides place-name journey planning, current conditions, observed/forecast AQI charting, a Leaflet map, saved places and routes, calculation history, preferences, and notifications. Location suggestions use the replaceable `LocationSearchProvider` abstraction, with Photon (OpenStreetMap data) as the default and `VITE_PHOTON_API_URL` as an optional endpoint override. The public Photon service requires internet access and is best-effort; it does not require an API key. Route calculation continues to use the authenticated backend API and its deterministic mock routing provider. The frontend calls the backend using `VITE_API_BASE_URL` (default `http://localhost:8080`).
 
 ## Configuration
 
-See `.env.example` for Compose ports, PostgreSQL settings, `JWT_SECRET`, and observation settings. Set a non-empty `POSTGRES_PASSWORD` in `.env`. Backend settings can also use `SPRING_DATASOURCE_URL`, `SPRING_DATASOURCE_USERNAME`, `SPRING_DATASOURCE_PASSWORD`, `JWT_SECRET`, `JWT_EXPIRATION_MS`, `SERVER_PORT`, `CLEANROUTE_ALLOWED_ORIGINS`, `OBSERVATION_INGESTION_INTERVAL_MS` (default 900000; minimum 60000), `OBSERVATION_PROVIDER_TIMEOUT_MS` (default 5000), and `OBSERVATION_RATE_LIMIT_BACKOFF_MS` (default 60000; maximum 300000). Suitability and notification baselines are configured under `app.routes.suitability` and `app.notifications` in `application.yml`. Provider API keys remain optional placeholders; deterministic mocks are used locally.
+See `.env.example` for Compose ports, PostgreSQL settings, `JWT_SECRET`, and observation settings. `VITE_PHOTON_API_URL` can point the frontend geocoder adapter at a compatible endpoint; no geocoder key is needed. Set a non-empty `POSTGRES_PASSWORD` in `.env`. Backend settings can also use `SPRING_DATASOURCE_URL`, `SPRING_DATASOURCE_USERNAME`, `SPRING_DATASOURCE_PASSWORD`, `JWT_SECRET`, `JWT_EXPIRATION_MS`, `SERVER_PORT`, `CLEANROUTE_ALLOWED_ORIGINS`, `OBSERVATION_INGESTION_INTERVAL_MS` (default 900000; minimum 60000), `OBSERVATION_PROVIDER_TIMEOUT_MS` (default 5000), and `OBSERVATION_RATE_LIMIT_BACKOFF_MS` (default 60000; maximum 300000). Suitability and notification baselines are configured under `app.routes.suitability` and `app.notifications` in `application.yml`. Provider API keys remain optional placeholders; deterministic mocks are used locally.
 
 ## Current API
 

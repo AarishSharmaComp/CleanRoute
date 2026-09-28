@@ -37,6 +37,7 @@ services:
     build: { context: ./frontend }
     environment:
       VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8080}
+      VITE_PHOTON_API_URL: ${VITE_PHOTON_API_URL:-https://photon.komoot.io/api/}
     ports:
       - "${FRONTEND_PORT:-5173}:5173"
     depends_on:
