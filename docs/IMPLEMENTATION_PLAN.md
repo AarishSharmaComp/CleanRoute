@@ -42,25 +42,25 @@ Implement `RouteService` and provider-neutral route alternatives. Add route segm
 
 Add configurable mode suitability rules: low pollution/traffic, green-area preference where mock/map metadata supports it, suitable distance for joggers, and cycling compatibility/elevation when available. Keep unsupported factors explicit rather than inventing values.
 
-**Done when:** JOGGER and CYCLIST preferences change candidate ranking and explain the criteria used.
+**Done when:** JOGGER and CYCLIST preferences change candidate ranking and explain the criteria used. Implemented with configurable pollution, traffic, and jogger distance suitability; provider metadata for green coverage, cycle compatibility, and elevation is optional and unavailable metadata is explicitly excluded. V5 extends the route preference constraint without rewriting earlier migrations.
 
 ## Phase 8 — Dashboard and visualizations
 
 Build the responsive dashboard with route search, Leaflet map, colored route alternatives, pollution legend, current AQI, observed/forecast chart, and route details. Integrate the REST API and show loading, empty, and error states.
 
-**Done when:** the demo journey can be searched and compared on the map, and observed versus predicted chart values are clearly distinguishable.
+**Done when:** the demo journey can be searched and compared on the map, and observed versus predicted chart values are clearly distinguishable. Implemented as a responsive React dashboard with Leaflet/OpenStreetMap route and cell overlays, observed/forecast AQI charting, account access, loading/error/empty states, route calculation, and save actions.
 
 ## Phase 9 — Saved routes, history, and notifications
 
 Add saved places/routes, route history, user preference persistence, dashboard aggregation, and internal notifications with read state. Implement baseline notification rules for unusually high forecast pollution and cleaner alternatives; keep delivery behind a notification interface for later email/push adapters.
 
-**Done when:** authenticated users can save, retrieve, and review routes and notifications; demo behavior is documented.
+**Done when:** authenticated users can save, retrieve, and review routes and notifications; demo behavior is documented. Existing owner-scoped place/route/preference APIs are integrated with calculation history, `/api/dashboard`, and deduplicated in-app alerts for high forecasts and materially cleaner alternatives. V6 adds the notification table; notifications are evaluated on dashboard reads and route calculations.
 
 ## Phase 10 — Hardening and handoff
 
 Complete focused unit, integration, and frontend checks; validate inputs and authorization boundaries; improve error handling, logging, health/readiness behavior, and startup documentation. Document architecture, schema, endpoints, environment variables, mock data, limitations, and provider integration points in README and docs.
 
-**Done when:** the documented Docker Compose workflow is reproducible, quality checks pass, and known limitations and extension points are clear.
+**Done when:** the documented Docker Compose workflow is reproducible, quality checks pass, and known limitations and extension points are clear. Implemented database-aware readiness responses, consistent validation/error handling, CORS configuration for the local frontend, and updated handoff documentation and regression tests.
 
 ## Implementation principles
 

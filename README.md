@@ -1,6 +1,6 @@
 # CleanRoute
 
-CleanRoute is a pollution-aware route planning platform. The repository includes the Phase 1 foundation, Phase 2 account and saved-user-data APIs, the Phase 3 environmental observation foundation, the Phase 4 comparative pollution scoring baseline, the Phase 5 historical forecast baseline, and Phase 6 mock route alternatives and preference ranking.
+CleanRoute is a pollution-aware route planning platform. The repository includes the foundation, accounts, environmental observations, pollution scoring and baseline forecasting, mock route alternatives, suitability ranking, a connected dashboard, owner-scoped route history, and in-app notifications through Phase 10.
 
 ## Requirements
 
@@ -75,11 +75,11 @@ npm test
 npm run build
 ```
 
-The frontend shell is self-contained and does not need a running backend to render; dashboard/API integration is deferred to a later phase.
+The frontend provides route planning, current conditions, observed/forecast AQI charting, a Leaflet map, saved places and routes, calculation history, preferences, and notifications. It calls the backend using `VITE_API_BASE_URL` (default `http://localhost:8080`).
 
 ## Configuration
 
-See `.env.example` for Compose ports, PostgreSQL settings, `JWT_SECRET`, and observation settings. Set a non-empty `POSTGRES_PASSWORD` in `.env`. Backend settings can also use `SPRING_DATASOURCE_URL`, `SPRING_DATASOURCE_USERNAME`, `SPRING_DATASOURCE_PASSWORD`, `JWT_SECRET`, `JWT_EXPIRATION_MS`, `SERVER_PORT`, `OBSERVATION_INGESTION_INTERVAL_MS` (default 900000; minimum 60000), `OBSERVATION_PROVIDER_TIMEOUT_MS` (default 5000), and `OBSERVATION_RATE_LIMIT_BACKOFF_MS` (default 60000; maximum 300000). Provider API keys remain optional placeholders; deterministic mocks are used locally.
+See `.env.example` for Compose ports, PostgreSQL settings, `JWT_SECRET`, and observation settings. Set a non-empty `POSTGRES_PASSWORD` in `.env`. Backend settings can also use `SPRING_DATASOURCE_URL`, `SPRING_DATASOURCE_USERNAME`, `SPRING_DATASOURCE_PASSWORD`, `JWT_SECRET`, `JWT_EXPIRATION_MS`, `SERVER_PORT`, `CLEANROUTE_ALLOWED_ORIGINS`, `OBSERVATION_INGESTION_INTERVAL_MS` (default 900000; minimum 60000), `OBSERVATION_PROVIDER_TIMEOUT_MS` (default 5000), and `OBSERVATION_RATE_LIMIT_BACKOFF_MS` (default 60000; maximum 300000). Suitability and notification baselines are configured under `app.routes.suitability` and `app.notifications` in `application.yml`. Provider API keys remain optional placeholders; deterministic mocks are used locally.
 
 ## Current API
 
@@ -94,6 +94,9 @@ See `.env.example` for Compose ports, PostgreSQL settings, `JWT_SECRET`, and obs
 | `POST` | `/api/routes/save` | Save a supplied route record; does not calculate routes |
 | `GET`, `DELETE` | `/api/routes/saved` | List/delete the current user's saved routes |
 | `GET` | `/api/routes/history` | Retrieve the current user's route history |
+| `GET` | `/api/dashboard` | Authenticated dashboard data: environmental series, saved places/routes, calculation history, and notifications |
+| `GET` | `/api/notifications?limit=50` | List the authenticated user's in-app notifications |
+| `POST` | `/api/notifications/{id}/read` | Mark one owned notification as read |
 | `GET` | `/api/aqi/current?cell=demo-delhi-central` | Latest AQI observation for a cell; includes provider, generated flag, stale flag, timestamp, and units |
 | `GET` | `/api/aqi/history?cell=...&start=...&end=...&interval=15&limit=100&offset=0` | Historical AQI observations for a known cell; ISO-8601 timestamps, maximum 90-day range and 1,000 rows per page |
 | `GET` | `/api/pollution/score?cell=...&at=...&durationSeconds=...&distanceMeters=...&mode=WALK` | Comparative score for one stored 15-minute observation interval and supplied trip context; returns component scores, missing inputs, provenance, and caveats |
@@ -101,6 +104,10 @@ See `.env.example` for Compose ports, PostgreSQL settings, `JWT_SECRET`, and obs
 | `GET` | `/api/pollution/forecast/history?cell=...&from=...&to=...&limit=100` | Retrieve persisted forecast rows for a cell and bounded time range |
 | `POST` | `/api/routes/calculate` | Authenticated route calculation returning mock alternatives ranked by FASTEST, CLEANEST, or BALANCED preference |
 | `GET` | `/api/routes/{id}` | Retrieve the authenticated user's saved route calculation |
+
+Route calculations accept FASTEST, CLEANEST, BALANCED, JOGGER, and CYCLIST preferences. JOGGER requires JOG mode; CYCLIST requires CYCLE mode. Suitability weights and thresholds are configurable under `app.routes.suitability`. The mock has no green-space, cycling-compatibility, or elevation metadata, so those factors are reported as unavailable and excluded. Route results and saved data are scoped to the signed-in user.
+
+In-app notifications are generated when an authenticated dashboard request evaluates a high forecast or when a route calculation includes a materially cleaner alternative. The thresholds are configurable under `app.notifications`; user notification preferences are respected. Delivery is behind a provider interface and currently stores notifications in PostgreSQL only.
 
 Pass the login/register token as `Authorization: Bearer <token>` for user-specific endpoints. Registration requires `email`, `password` (8–72 characters), and `displayName`. Passwords are stored as BCrypt hashes. The Phase 2 schema is created only by Flyway migrations and Hibernate validates it at startup.
 
@@ -124,4 +131,4 @@ docker-compose.yml
 
 ## Current limitations
 
-The historical forecast baseline is not a validated predictive model. Route paths are deterministic generated mock alternatives, and their pollution context uses nearest-cell matching against three fixed demo cells rather than dynamic geographic lookup. Ranking supports FASTEST, CLEANEST, and BALANCED; JOGGER/CYCLIST suitability recommendations, route search UI, notifications, and real external provider integrations remain later phases. Provider freshness is stored per provider and cell; current AQI is marked stale after 30 minutes. Redis is not required.
+The historical forecast, pollution scores, suitability ranks, and notifications are transparent demo baselines, not validated health guidance. Route paths are deterministic generated mock alternatives, and their pollution context uses nearest-cell matching against three fixed demo cells rather than dynamic geographic lookup. Green-area, cycling-compatibility, and elevation metadata are not present in the mock routing data. The dashboard uses OpenStreetMap tiles; internet access is required for those tiles. Real external provider integrations remain deferred. Provider freshness is stored per provider and cell; current AQI is marked stale after 30 minutes. Redis is not required.

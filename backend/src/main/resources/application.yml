@@ -15,6 +15,8 @@ spring:
 server:
   port: ${SERVER_PORT:8080}
 app:
+  web:
+    allowed-origins: ${CLEANROUTE_ALLOWED_ORIGINS:http://localhost:5173,http://127.0.0.1:5173}
   jwt:
     secret: ${JWT_SECRET:}
     expiration-ms: ${JWT_EXPIRATION_MS:86400000}
@@ -39,3 +41,22 @@ app:
       traffic-weight: 0.15
       weather-weight: 0.10
       wind-reference-mps: 10
+  routes:
+    suitability:
+      jogger-minimum-distance-meters: 2000
+      jogger-ideal-maximum-distance-meters: 8000
+      jogger-maximum-distance-meters: 12000
+      jogger-maximum-pollution-exposure: 50
+      jogger-maximum-congestion-factor: 2.5
+      cyclist-maximum-pollution-exposure: 50
+      cyclist-maximum-congestion-factor: 3.0
+      pollution-weight: 0.5
+      traffic-weight: 0.3
+      distance-weight: 0.2
+      prefer-green-areas: true
+      maximum-elevation-gain-meters: 250
+  notifications:
+    high-aqi-threshold: 100
+    high-pm25-threshold: 35
+    cleaner-exposure-improvement: 5
+    result-limit: 50

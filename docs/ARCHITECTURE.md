@@ -31,8 +31,8 @@ Spring Boot modular monolith
   ├── auth and user profile
   ├── places and route planning
   ├── pollution observations and forecasts
-  ├── scoring and recommendations
-  ├── notifications and dashboard
+  ├── scoring and suitability ranking
+  ├── in-app notifications and dashboard
   └── provider adapters and scheduled ingestion
                   │
                   ▼
@@ -65,10 +65,14 @@ Keep the business services independent of Spring and provider-specific SDKs wher
 - Phase 4 `PollutionScoreService` combines the pollution burden adjusted by interval-specific duration, distance, and travel mode with available traffic and weather context using configurable weights. The authenticated-data boundary is unchanged; `/api/pollution/score` exposes an environmental estimate without personal route geometry. It reports direction, component scores, provenance, missing inputs, and caveats. This comparative demo estimate is not validated health guidance and does not rank or recommend routes.
 - Phase 5 persists forecasts separately from observations in `pollution_forecast`. `PollutionForecastService` uses the replaceable `ForecastProvider`; the historical average provider matches same-time/day patterns where available, exponentially weights recent observations, falls back for sparse history, and reports sample-based quality. Responses explicitly mark values as predicted, never observed. This is a baseline, not an ML model.
 - Phase 6 `RouteService` obtains provider-neutral alternatives, samples segment midpoints at estimated passage times, maps samples to the nearest of the three fixed demo cells, and calculates expected pollution exposure from persisted or newly generated forecasts. FASTEST ranks duration, CLEANEST ranks pollution cleanliness, and BALANCED equally combines normalized time efficiency and pollution cleanliness. Components and reasons are returned. JOGGER/CYCLIST suitability and route recommendations belong to Phase 7.
+- Phase 7 adds configurable JOGGER/CYCLIST suitability using modeled pollution and available traffic; JOGGER also scores distance against a configurable target range. Optional route metadata can provide green-area coverage, cycling compatibility, and elevation; missing metadata is excluded from the score and explained in the response. JOGGER requires JOG mode and CYCLIST requires CYCLE mode.
+- Phase 9 `DashboardService` combines observed/forecast data with owner-scoped places, saved routes, calculations, history, and notifications. In-app notification records are deduplicated per user and event. High forecast alerts are evaluated on authenticated dashboard reads; cleaner-alternative alerts are evaluated after route calculations. User notification preferences are honored. Notification delivery is replaceable through `NotificationProvider`; only in-app PostgreSQL delivery is implemented.
 
 ## Persistence model
 
 Initial relational entities: `User`, `UserPreference`, `SavedPlace`, `PollutionObservation`, `WeatherObservation`, `TrafficObservation`, `PollutionForecast`, `RouteCalculation`, `SavedRoute`, `RouteHistory`, and `Notification`. Phase 6 stores each calculation result in `route_calculation` scoped to its authenticated owner; existing saved-route and route-history records remain separate. Saved routes retain origin/destination, encoded geometry, mode, preference, score, duration, and creation time. Use DTOs at the API boundary rather than serializing entities.
+
+V5 extends the accepted route calculation preferences for JOGGER/CYCLIST. V6 adds `user_notification` with an owner foreign key, per-user deduplication, read timestamp, and owner/time indexes. Route calculations append a compact owner-scoped row to the existing `route_history` table in the same transaction.
 
 Use Spring Security with BCrypt password hashing and stateless token authentication. Keep auth tokens and provider credentials out of source control. Validate and rate-limit authentication inputs; return consistent error responses. Demo data and optional demo user behavior must be documented and isolated from real account data.
 
@@ -94,16 +98,18 @@ All application endpoints use `/api` and versioning can be added before a public
 - `POST /api/auth/register`, `POST /api/auth/login` — account creation and login.
 - `GET /api/aqi/current`, `GET /api/aqi/history` — current and historical observations.
 - `GET /api/pollution/forecast?cell=...&from=...&interval=15&count=4` — generate a bounded 15-minute forecast series; response labels prediction data and quality. `GET /api/pollution/forecast/history` retrieves persisted predictions.
-- `POST /api/routes/calculate`, `GET /api/routes/{id}` — calculate alternatives and retrieve route details.
+- `POST /api/routes/calculate`, `GET /api/routes/{id}` — calculate alternatives for FASTEST, CLEANEST, BALANCED, JOGGER, or CYCLIST and retrieve route details.
 - `POST /api/routes/save`, `GET /api/routes/saved` — save/list a user's routes.
-- `GET /api/dashboard` — dashboard summary for the authenticated user or documented demo mode.
-- `GET /api/notifications`, `POST /api/notifications/{id}/read` — internal notifications.
+- `GET /api/dashboard` — authenticated observations, forecasts, saved places/routes, calculation history, and notifications.
+- `GET /api/notifications?limit=50`, `POST /api/notifications/{id}/read` — owner-scoped internal notifications.
 
 Use validated request/response DTOs, pagination for history, consistent error bodies, and explicit units and timestamps (ISO-8601 with timezone).
 
 ## Local operation and configuration
 
 Docker Compose starts PostgreSQL, Spring Boot, and the frontend in demo mode. `.env.example` documents non-secret defaults and optional `AQI_API_KEY`, `WEATHER_API_KEY`, and `TRAFFIC_API_KEY`; mock providers run without credentials, and any future provider keys are supplied through the local environment and ignored env files. Health checks gate service readiness. The application should remain usable without external API credentials.
+
+`GET /api/health` checks database connectivity and returns HTTP 503 with `status: DOWN` when PostgreSQL is unavailable. Local browser origins are restricted to the configured `CLEANROUTE_ALLOWED_ORIGINS` list (localhost ports 5173 by default); bearer-token APIs remain stateless.
 
 ## Quality attributes
 

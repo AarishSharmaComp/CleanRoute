@@ -14,6 +14,7 @@ import com.cleanroute.pollution.service.PollutionEngine;
 import com.cleanroute.pollution.service.PollutionForecastService;
 import com.cleanroute.pollution.config.PollutionScoringProperties;
 import com.cleanroute.route.domain.RoutePlanningModels.CalculationRequest;
+import com.cleanroute.route.config.RouteSuitabilityProperties;
 import com.cleanroute.route.repository.RouteCalculationRepository;
 import com.cleanroute.route.service.RouteService;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -77,13 +78,66 @@ class RouteServiceRankingTest {
         var fastest = service.calculate(new CalculationRequest(origin, destination, TravelMode.CAR, RoutePreference.FASTEST, null), owner);
         var cleanest = service.calculate(new CalculationRequest(origin, destination, TravelMode.CAR, RoutePreference.CLEANEST, null), owner);
         var balanced = service.calculate(new CalculationRequest(origin, destination, TravelMode.CAR, RoutePreference.BALANCED, null), owner);
+        var jogger = service.calculate(new CalculationRequest(origin, destination, TravelMode.JOG, RoutePreference.JOGGER, null), owner);
+        var cyclist = service.calculate(new CalculationRequest(origin, destination, TravelMode.CYCLE, RoutePreference.CYCLIST, null), owner);
         assertThat(fastest.alternatives().getFirst().alternativeId()).isEqualTo("fast");
         assertThat(cleanest.alternatives().getFirst().alternativeId()).isEqualTo("clean");
         assertThat(balanced.alternatives().getFirst().alternativeId()).isEqualTo("balanced");
         assertThat(cleanest.alternatives().getFirst().expectedPollutionExposure()).isEqualTo(10.0);
         assertThat(balanced.alternatives().getFirst().scoreComponents()).containsKeys("durationEfficiency", "pollutionCleanliness");
         assertThat(fastest.alternatives().getFirst().reasons()).isNotEmpty();
-        verify(storage, times(3)).save(any(), any(), anyDouble(), anyDouble(), anyDouble(), anyDouble(), anyString(), anyString(), anyString());
+        assertThat(jogger.alternatives().getFirst().alternativeId()).isEqualTo("clean");
+        assertThat(jogger.alternatives().getFirst().scoreComponents()).containsKey("distanceSuitability");
+        assertThat(jogger.alternatives().getFirst().reasons()).anyMatch(reason -> reason.contains("Green-area metadata is unavailable"));
+        assertThat(cyclist.alternatives().getFirst().alternativeId()).isEqualTo("clean");
+        assertThat(cyclist.alternatives().getFirst().reasons()).anyMatch(reason -> reason.contains("Cycling-compatibility metadata is unavailable"));
+        verify(storage, times(5)).save(any(), any(), anyDouble(), anyDouble(), anyDouble(), anyDouble(), anyString(), anyString(), anyString());
+    }
+
+    @Test void joggerRankingUsesAvailableGreenAreaCoverageAndExplainsItsUse() {
+        var result = calculateJoggerWithGreenCoverage(1.0, 0.0);
+
+        assertThat(result.alternatives().getFirst().alternativeId()).isEqualTo("green-route");
+        assertThat(result.alternatives().getFirst().scoreComponents().get("greenAreaPreference")).isEqualTo(100.0);
+        assertThat(result.alternatives().getLast().scoreComponents().get("greenAreaPreference")).isEqualTo(0.0);
+        assertThat(result.alternatives().getFirst().reasons())
+                .anyMatch(reason -> reason.contains("Green-area coverage metadata was used"));
+    }
+
+    @Test void joggerRankingDoesNotInventMissingGreenAreaCoverageAndExplainsItsAbsence() {
+        var result = calculateJoggerWithGreenCoverage(null, null);
+
+        assertThat(result.alternatives()).allSatisfy(alternative -> {
+            assertThat(alternative.scoreComponents()).doesNotContainKey("greenAreaPreference");
+            assertThat(alternative.reasons()).anyMatch(reason -> reason.contains("Green-area metadata is unavailable and was not used"));
+        });
+    }
+
+    private static com.cleanroute.route.domain.RoutePlanningModels.CalculationResult calculateJoggerWithGreenCoverage(
+            Double greenerCoverage, Double lowerCoverage) {
+        ObservationRepository observations = mock(ObservationRepository.class);
+        RoutingProvider routing = mock(RoutingProvider.class);
+        PollutionForecastService forecasts = mock(PollutionForecastService.class);
+        RouteCalculationRepository storage = mock(RouteCalculationRepository.class);
+        when(observations.cells()).thenReturn(List.of(new GeographicCell("central", 28.6139, 77.2090)));
+        Coordinate origin = new Coordinate(28.6139, 77.2090);
+        Coordinate destination = new Coordinate(28.6200, 77.2150);
+        when(routing.alternatives(any(RoutingRequest.class))).thenReturn(List.of(
+                new RoutePath(List.of(origin, destination), 5000, 1200, "mock", true, "green-route",
+                        greenerCoverage, null, null),
+                new RoutePath(List.of(origin, destination), 5000, 1200, "mock", true, "lower-green-route",
+                        lowerCoverage, null, null)));
+        when(forecasts.forecast(anyString(), any(Instant.class))).thenAnswer(call ->
+                new PollutionForecast("central", call.getArgument(1), Instant.now(), null, 10.0,
+                        null, null, null, null, null, 90, "HIGH", 5, "test", "test-v1", true));
+        RouteSuitabilityProperties suitability = new RouteSuitabilityProperties();
+        suitability.setPreferGreenAreas(true);
+        var service = new RouteService(routing, observations, forecasts,
+                new PollutionEngine(new PollutionScoringProperties()), storage,
+                new ObjectMapper().findAndRegisterModules(), suitability);
+
+        return service.calculate(new CalculationRequest(origin, destination, TravelMode.JOG, RoutePreference.JOGGER, null),
+                UUID.randomUUID());
     }
 
     private static double haversine(Coordinate a, Coordinate b) {

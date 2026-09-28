@@ -51,21 +51,50 @@ class RoutePlanningApiTest {
         String id = calculated.get("id").asText();
         mvc.perform(get("/api/routes/" + id).header("Authorization", "Bearer " + ownerToken))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.id").value(id));
+        mvc.perform(get("/api/routes/history").header("Authorization", "Bearer " + ownerToken))
+                .andExpect(status().isOk()).andExpect(jsonPath("$[0].originName").value("28.61390, 77.20900"));
+        mvc.perform(get("/api/routes/history").header("Authorization", "Bearer " + otherToken))
+                .andExpect(status().isOk()).andExpect(jsonPath("$", org.hamcrest.Matchers.hasSize(0)));
         mvc.perform(get("/api/routes/" + id).header("Authorization", "Bearer " + otherToken))
                 .andExpect(status().isNotFound());
     }
 
-    @Test void routeCalculationValidatesCoordinatesAndRejectsLaterPhasePreferences() throws Exception {
+    @Test void routeCalculationValidatesCoordinatesAndRequiresMatchingSuitabilityMode() throws Exception {
         String token = register("route-invalid@example.test");
         String invalidCoordinates = "{\"origin\":{\"latitude\":91,\"longitude\":77},"
                 + "\"destination\":{\"latitude\":28,\"longitude\":77},\"mode\":\"WALK\",\"preference\":\"FASTEST\"}";
         mvc.perform(post("/api/routes/calculate").header("Authorization", "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON).content(invalidCoordinates))
                 .andExpect(status().isBadRequest());
-        String laterPreference = "{\"origin\":{\"latitude\":28,\"longitude\":77},"
-                + "\"destination\":{\"latitude\":29,\"longitude\":78},\"mode\":\"CYCLE\",\"preference\":\"CYCLIST\"}";
+        String mismatchedPreference = "{\"origin\":{\"latitude\":28,\"longitude\":77},"
+                + "\"destination\":{\"latitude\":29,\"longitude\":78},\"mode\":\"WALK\",\"preference\":\"CYCLIST\"}";
         mvc.perform(post("/api/routes/calculate").header("Authorization", "Bearer " + token)
-                        .contentType(MediaType.APPLICATION_JSON).content(laterPreference))
+                        .contentType(MediaType.APPLICATION_JSON).content(mismatchedPreference))
                 .andExpect(status().isBadRequest());
+    }
+
+    @Test void acceptsJoggerAndCyclistPreferencesAndExplainsUnsupportedFactors() throws Exception {
+        String token = register("route-suitability@example.test");
+        String jogger = "{\"origin\":{\"latitude\":28.6139,\"longitude\":77.2090},"
+                + "\"destination\":{\"latitude\":28.7041,\"longitude\":77.1025},\"mode\":\"JOG\",\"preference\":\"JOGGER\"}";
+        mvc.perform(post("/api/routes/calculate").header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON).content(jogger))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.preference").value("JOGGER"))
+                .andExpect(jsonPath("$.alternatives[0].scoreComponents.distanceSuitability").isNumber())
+                .andExpect(jsonPath("$.alternatives[0].reasons").isArray());
+        String cyclist = "{\"origin\":{\"latitude\":28.6139,\"longitude\":77.2090},"
+                + "\"destination\":{\"latitude\":28.7041,\"longitude\":77.1025},\"mode\":\"CYCLE\",\"preference\":\"CYCLIST\"}";
+        mvc.perform(post("/api/routes/calculate").header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON).content(cyclist))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.preference").value("CYCLIST"))
+                .andExpect(jsonPath("$.alternatives[0].reasons").isArray());
+    }
+
+    @Test void browserOriginCanCallTheApiWithBearerHeaders() throws Exception {
+        mvc.perform(options("/api/routes/calculate").header("Origin", "http://localhost:5173")
+                        .header("Access-Control-Request-Method", "POST")
+                        .header("Access-Control-Request-Headers", "authorization,content-type"))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Access-Control-Allow-Origin", "http://localhost:5173"));
     }
 }
