@@ -13,7 +13,10 @@ flowchart TD
   API --> SEC[Spring Security / JWT filter]
   API --> SVC[Domain services]
   SVC --> P[Provider interfaces]
-  P --> MOCK[Deterministic mock providers]
+   P --> MOCK[Deterministic mock providers]
+   P --> ENV[EnvironmentalDataProvider]
+   ENV --> MOCKENV[MockEnvironmentalProvider]
+   ENV --> OPENMETEO[OpenMeteoEnvironmentalProvider]
   P --> ROUTING[RoutingProvider]
   ROUTING --> MOCKROUTE[MockRoutingProvider]
   ROUTING --> OSRM[OSRMRoutingProvider]
@@ -36,7 +39,7 @@ Root package: `com.cleanroute`.
 | `api` | Auth, health, account, saved-place, saved-route, and route-history controllers; shared API error mapping. |
 | `security` | JWT generation/validation, bearer filter, stateless security policy, CORS. |
 | `domain`, `repository` | Phase 2 JPA entities and Spring Data repositories. |
-| `observation` | Observation/provider and routing models, AQI/weather/traffic/routing interfaces and mocks, ingestion scheduling, normalization, freshness, retrieval. |
+| `observation` | Observation/provider and routing models, environmental/AQI/weather/traffic/routing interfaces and providers, ingestion scheduling, normalization, freshness, retrieval. |
 | `pollution` | Pollutant normalization/score, forecast provider/service/repository, score and forecast APIs. |
 | `route` | Route request/response domain, suitability config, route calculation and persistence. |
 | `dashboard` | Authenticated aggregation of observations, forecasts, account-owned route data, and notifications. |
@@ -46,7 +49,7 @@ JPA is used for user-owned Phase 2 entities. JDBC repositories are used where ti
 
 ## Dependency and persistence boundaries
 
-Controllers own HTTP binding and boundary validation. Services own business rules. Provider adapters produce typed domain results; `ObservationNormalizer` checks provider identity, requested cell, timestamps, and numeric values before persistence. Repositories own SQL and database uniqueness/ownership predicates. The scheduler isolates provider/cell work, records attempt/success/failure freshness, and does not require a broker.
+Controllers own HTTP binding and boundary validation. Services own business rules. Provider adapters produce typed domain results; `ObservationNormalizer` checks provider identity, requested cell, timestamps, and numeric values before persistence. Repositories own SQL and database uniqueness/ownership predicates. The scheduler isolates provider/cell work, records attempt/success/failure freshness, and does not require a broker. Pollution providers are selected through `EnvironmentalDataProvider`; the deprecated `AQIProvider` subtype remains only for source compatibility.
 
 Transactions are applied around service/database write boundaries where declared; individual repository operations also rely on PostgreSQL statement atomicity and constraints. Do not infer that all multi-step reads/writes are one transaction; inspect the relevant service annotation before changing one.
 
@@ -129,6 +132,14 @@ flowchart LR
 ```
 
 Null pollutants remain absent. The score API is an interval-based comparative calculation, not route ranking. Route exposure is separately calculated by `RouteService`; frontend code must not substitute local scoring.
+
+## Environmental provider flow
+
+`EnvironmentalDataProvider` exposes the existing pollution observation capability without changing `PollutionEngine`, forecasting, route exposure, or ranking. `MockEnvironmentalProvider` is the default and preserves deterministic timestamp/cell-derived generated values for offline use and tests. `OpenMeteoEnvironmentalProvider` is selected with `app.environmental.provider=open-meteo` and requests current conditions from the documented Open-Meteo Air Quality API using each fixed cell's WGS84 coordinates.
+
+Open-Meteo currently supplies PM10, PM2.5, carbon monoxide, nitrogen dioxide, sulphur dioxide, and ozone. Its returned concentration units are µg/m³; the adapter stores PM10, PM2.5, NO2, SO2, and O3 unchanged and converts CO to mg/m³ by dividing by 1000. `aqi` stays null because Open-Meteo's European and U.S. AQI standards are not interchangeable with CleanRoute's existing provider-native AQI field. Null provider measurements remain null and are not converted to zero. Open-Meteo current data cannot truthfully replay the mock seven-day historical seed, so the scheduler performs a current-interval ingestion only for this provider.
+
+HTTP non-2xx responses, rate limits, timeouts, network errors, malformed JSON, unexpected units, and responses with no measurements become typed provider failures. The scheduler records failure freshness and continues weather/traffic/cell work; it never substitutes mock values or persists fabricated observations. The real provider is an external model-backed source, not a claim of station-level real-time or global environmental coverage.
 
 ## Forecast lifecycle
 

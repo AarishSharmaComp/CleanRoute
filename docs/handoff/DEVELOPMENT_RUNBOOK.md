@@ -57,7 +57,9 @@ npm run dev
 
 Open `http://localhost:5173`. Set `VITE_API_BASE_URL` to the browser-reachable backend origin if it is not the default. Place search uses backend geocoding configuration; set `GEOCODING_PROVIDER=mock` to avoid external Photon access.
 
-Routing defaults to deterministic `ROUTING_PROVIDER=mock`. To opt into one OSRM road route, configure `ROUTING_PROVIDER=osrm` and optionally `OSRM_API_URL`, `ROUTING_CONNECT_TIMEOUT_MS`, and `ROUTING_READ_TIMEOUT_MS`. OSRM requires network access. It returns a single primary route; no alternate road routes are fabricated. Environmental exposure remains based on the three fixed Delhi demo cells and generated/historical demo forecasts.
+Routing defaults to deterministic `ROUTING_PROVIDER=mock`. To opt into one OSRM road route, configure `ROUTING_PROVIDER=osrm` and optionally the OSRM URL/timeouts. OSRM requires network access and returns a single primary route; no alternate road routes are fabricated.
+
+Environmental pollution data defaults to deterministic `ENVIRONMENTAL_PROVIDER=mock`. To use the verified Open-Meteo adapter, set `ENVIRONMENTAL_PROVIDER=open-meteo`; optionally configure `OPEN_METEO_API_URL`, `ENVIRONMENTAL_CONNECT_TIMEOUT_MS`, and `ENVIRONMENTAL_READ_TIMEOUT_MS`. The adapter requests current PM10, PM2.5, carbon monoxide, nitrogen dioxide, sulphur dioxide, and ozone at each fixed-cell coordinate. Open-Meteo values are external model output, not generated mock values; CO is normalized from µg/m³ to CleanRoute's mg/m³. AQI remains null because Open-Meteo's documented European/U.S. indices are not interchangeable with CleanRoute's provider-native AQI field. The real adapter skips historical seed replay and ingests only the current interval. Network, HTTP, timeout, malformed-response, rate-limit, and missing-measurement failures create no fake data. Coverage remains limited to the three fixed Delhi cells.
 
 ## Start entire application with Docker Compose
 

@@ -25,9 +25,11 @@ app:
     initial-delay-ms: ${OBSERVATION_INGESTION_INITIAL_DELAY_MS:900000}
     provider-timeout-ms: ${OBSERVATION_PROVIDER_TIMEOUT_MS:5000}
     rate-limit-backoff-ms: ${OBSERVATION_RATE_LIMIT_BACKOFF_MS:60000}
-    aqi-api-key: ${AQI_API_KEY:}
-    weather-api-key: ${WEATHER_API_KEY:}
-    traffic-api-key: ${TRAFFIC_API_KEY:}
+  environmental:
+    provider: ${ENVIRONMENTAL_PROVIDER:mock}
+    open-meteo-url: ${OPEN_METEO_API_URL:https://air-quality-api.open-meteo.com/v1/air-quality}
+    connect-timeout-ms: ${ENVIRONMENTAL_CONNECT_TIMEOUT_MS:2000}
+    read-timeout-ms: ${ENVIRONMENTAL_READ_TIMEOUT_MS:5000}
   pollution:
     scoring:
       aqi-index-max: 500

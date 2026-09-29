@@ -6,7 +6,7 @@ This is the master orientation document for an AI or developer taking over this 
 
 **CleanRoute** is a pollution-aware journey-planning demo. It compares route alternatives using travel-time estimates and pollution exposure estimates derived from stored environmental observations and baseline forecasts. It exists to demonstrate an end-to-end flow from environmental data collection and scoring through route alternatives, user accounts, a dashboard, and owner-scoped saved data.
 
-The project is a **local-development / deterministic-demo application**, not a production air-quality or navigation service. External air-quality, weather, traffic, and routing integrations do not exist. Forecasts, mock observations, and route alternatives are generated demo data. Place search is proxied through the backend geocoding provider abstraction.
+The project is a **local-development / deterministic-demo application**, not a production air-quality or navigation service. Environmental data defaults to deterministic mock observations, with an opt-in Open-Meteo current air-quality adapter. Weather and traffic remain mock providers, forecasts remain a historical baseline, and route alternatives remain provider-dependent. Place search is proxied through the backend geocoding provider abstraction.
 
 ### Technology
 
@@ -23,7 +23,7 @@ The project is a **local-development / deterministic-demo application**, not a p
 
 - Health endpoint checks the database connection.
 - Registration, login, BCrypt password hashing, stateless JWT authentication, user profiles/preferences, and owner-scoped saved places/routes/history.
-- Three fixed geographic cells; pollution, weather, and traffic observation models; deterministic mock providers; scheduled ingestion, validation, timeouts, failure isolation, and provider freshness storage.
+- Three fixed geographic cells; provider-neutral environmental/pollution, weather, and traffic observation models; deterministic mock providers; optional Open-Meteo pollution observations; scheduled ingestion, validation, timeouts, failure isolation, and provider freshness storage.
 - Current and historical AQI APIs with generated/provider labels, units, time-range limits, and stale status on current data.
 - Comparative pollution scoring from observations, with pollutant normalization, missing-data reporting, AQI fallback, traffic/weather context, provenance, and caveats.
 - A replaceable forecast interface and deterministic historical-average baseline; predicted records are persisted and explicitly labeled.
@@ -43,7 +43,7 @@ The project is a **local-development / deterministic-demo application**, not a p
 
 ### Incomplete, unavailable, or deferred
 
-- There are no real third-party AQI, weather, or traffic integrations. OSRM is an optional road-routing integration; API-key properties/placeholders do not mean those environmental integrations exist.
+- Open-Meteo is the only real environmental integration. There are no real weather or traffic integrations. OSRM is an optional road-routing integration; none of these integrations provide global CleanRoute environmental coverage.
 - Geographic lookup is limited to three fixed deterministic demo cells. There is no arbitrary coordinate-to-area lookup service or PostGIS.
 - Mock route paths do not provide green-area, cycling compatibility, or elevation metadata. JOGGER/CYCLIST scoring reports unavailable metadata and excludes it when absent. The RoutePath model can carry these optional values for a future provider.
 - Per-route AQI is not a response field. Route cards must not assign the current cell AQI to a route.
@@ -100,7 +100,7 @@ The frontend receives generated outputs from backend services; it does not imple
 ### Responsibilities by area
 
 - **Authentication**: Spring Security filter chain, `JwtAuthFilter`, `JwtService`; public auth routes mint a signed token; controllers use its UUID principal for all owner-scoped reads/writes.
-- **Observations**: `ObservationIngestionScheduler` calls AQI/weather/traffic interfaces per fixed cell, normalizes provider response, then writes with JDBC repositories. `ProviderFreshnessRepository` stores attempt/success/failure state.
+- **Observations**: `ObservationIngestionScheduler` calls `EnvironmentalDataProvider`, `WeatherProvider`, and `TrafficProvider` per fixed cell, normalizes provider responses, then writes with JDBC repositories. `ProviderFreshnessRepository` stores attempt/success/failure state. `AQIProvider` remains a deprecated compatibility subtype for existing callers/tests.
 - **Pollution scoring**: `PollutionEngine` normalizes available measurements; `PollutionScoreService` combines pollutant burden and provided trip context with available traffic/weather. It scores one cell/time and does not rank routes.
 - **Forecasting**: `PollutionForecastService` bounds requests and asks a `ForecastProvider`; the historical average provider aggregates to one cell/time sample, predicts per pollutant where data exist, and writes `pollution_forecast`.
 - **Route calculation**: `RouteService` calls the configured `RoutingProvider`, evaluates each path with forecast samples and traffic context, applies the requested rank/suitability mode, persists JSON result and route history in one transaction.
@@ -188,7 +188,7 @@ This is a deterministic mock route pipeline; it is not real road routing or a pr
 ## Pollution/AQI pipeline
 
 - The scheduler asks `AQIProvider`, `WeatherProvider`, and `TrafficProvider` for timestamped outputs, runs normalization, and persists each observation. Provider/cell/time identity must match; invalid/future/NaN/infinite/range-invalid data are rejected. Missing values stay null.
-- AQI observation contains AQI, PM2.5, PM10, NO2, SO2, CO, O3, provider, generated flag, observed and ingest timestamps. Units are documented by the AQI API: µg/m³ for most pollutants, mg/m³ for CO, provider-native AQI index.
+- Pollution observation contains AQI, PM2.5, PM10, NO2, SO2, CO, O3, provider, generated flag, observed and ingest timestamps. CleanRoute units are µg/m³ for PM2.5, PM10, NO2, SO2, and O3, mg/m³ for CO, and provider-native AQI index. Open-Meteo supplies the six pollutant measurements, converted to these units, but no compatible AQI is stored.
 - Current AQI chooses the latest row for a cell and sets `stale=true` after 30 minutes. History requires 15-minute interval and a known cell; a known empty interval returns an empty array.
 - `PollutionEngine` normalizes each available pollutant against configurable reference values into a 0–100 proxy; it averages present measurements only. If there are no individual measurements but provider AQI is present, AQI fallback is used. No value is changed to zero to fill missing measurements.
 - `/api/pollution/score` accepts one stored aligned observation interval and user-supplied duration/distance/mode context. It applies mode, duration and distance factors, and available traffic/weather inputs with configured weights. Higher means greater modeled comparative burden; it is not route ranking or validated health guidance.

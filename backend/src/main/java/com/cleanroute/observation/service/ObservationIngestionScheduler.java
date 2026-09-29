@@ -25,7 +25,7 @@ public class ObservationIngestionScheduler {
             new GeographicCell("demo-delhi-central", 28.6139, 77.2090),
             new GeographicCell("demo-delhi-south", 28.5355, 77.2100),
             new GeographicCell("demo-delhi-north", 28.7041, 77.1025));
-    private final AQIProvider aqi;
+    private final EnvironmentalDataProvider aqi;
     private final WeatherProvider weather;
     private final TrafficProvider traffic;
     private final ObservationRepository repository;
@@ -34,7 +34,7 @@ public class ObservationIngestionScheduler {
     private final ObservationProperties properties;
     private final ConcurrentMap<String, Instant> rateLimitBackoffUntil = new ConcurrentHashMap<>();
 
-    public ObservationIngestionScheduler(AQIProvider aqi, WeatherProvider weather, TrafficProvider traffic,
+    public ObservationIngestionScheduler(EnvironmentalDataProvider aqi, WeatherProvider weather, TrafficProvider traffic,
             ObservationRepository repository, ProviderFreshnessRepository freshness,
             ObservationProviderCallExecutor callExecutor, ObservationProperties properties) {
         this.aqi = aqi;
@@ -50,8 +50,13 @@ public class ObservationIngestionScheduler {
     public void seedDemoHistory() {
         Instant end = floorQuarterHour(Instant.now());
         for (GeographicCell cell : CELLS) repository.saveCell(cell);
-        for (int i = 7 * 24 * 4; i >= 0; i--) ingestAt(end.minus(i * 15L, ChronoUnit.MINUTES), i == 0);
-        log.info("Completed seven-day generated observation seed attempt for {} cells", CELLS.size());
+        if (aqi.supportsHistoricalIngestion()) {
+            for (int i = 7 * 24 * 4; i >= 0; i--) ingestAt(end.minus(i * 15L, ChronoUnit.MINUTES), i == 0);
+            log.info("Completed seven-day generated observation seed attempt for {} cells", CELLS.size());
+        } else {
+            ingestAt(end, true);
+            log.info("Skipped historical environmental seed for real-time provider {}", aqi.providerId());
+        }
     }
 
     @Scheduled(fixedDelayString = "${app.observations.ingestion-interval-ms:900000}",

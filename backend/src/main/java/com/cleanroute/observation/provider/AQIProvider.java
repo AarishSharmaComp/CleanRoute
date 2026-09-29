@@ -4,7 +4,7 @@ import com.cleanroute.observation.domain.ObservationModels.*;
 import java.time.Instant;
 import java.util.List;
 
-public interface AQIProvider {
-    String providerId();
-    List<PollutionObservation> observations(GeographicCell cell, Instant timestamp);
+/** @deprecated Use {@link EnvironmentalDataProvider}; retained for existing integrations. */
+@Deprecated
+public interface AQIProvider extends EnvironmentalDataProvider {
 }

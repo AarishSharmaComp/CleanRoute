@@ -1,11 +1,9 @@
 package com.cleanroute.observation.provider;
 
 import com.cleanroute.observation.domain.ObservationModels.*;
-import org.springframework.stereotype.Component;
 import java.time.Instant;
 import java.util.List;
 
-@Component
 public class MockAQIProvider implements AQIProvider {
     @Override public String providerId() { return "mock-demo-aqi"; }
     @Override public List<PollutionObservation> observations(GeographicCell cell, Instant timestamp) {

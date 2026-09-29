@@ -1,6 +1,6 @@
 # CleanRoute
 
-CleanRoute is a pollution-aware route planning platform. The repository includes the foundation, accounts, environmental observations, pollution scoring and baseline forecasting, mock route alternatives, suitability ranking, a connected dashboard, owner-scoped route history, and in-app notifications through Phase 10.
+CleanRoute is a pollution-aware route planning platform. The repository includes the foundation, accounts, provider-neutral environmental observations, pollution scoring and baseline forecasting, mock route alternatives, suitability ranking, a connected dashboard, owner-scoped route history, and in-app notifications through Phase 12.
 
 ## Requirements
 
@@ -29,7 +29,7 @@ CleanRoute is a pollution-aware route planning platform. The repository includes
 
 4. Stop services with `Ctrl+C`, or run `docker compose down`. To remove the local database volume as well, run `docker compose down -v`.
 
-No external API keys are needed. The Compose database is local. Flyway applies migrations under `backend/src/main/resources/db/migration/`. On startup, deterministic generated AQI, weather, and traffic observations are seeded for seven days across three demo cells. These values are mock data and do not represent actual conditions.
+The default `ENVIRONMENTAL_PROVIDER=mock` requires no external API keys. Flyway applies migrations under `backend/src/main/resources/db/migration/`. In mock mode, deterministic generated AQI, weather, and traffic observations are seeded for seven days across three demo cells. These values are mock data and do not represent actual conditions.
 
 ## Run backend directly
 
@@ -79,7 +79,7 @@ The frontend provides place-name journey planning, current conditions, observed/
 
 ## Configuration
 
-See `.env.example` for Compose ports, PostgreSQL settings, `JWT_SECRET`, observation settings, backend geocoding settings, and routing settings (`ROUTING_PROVIDER`, `OSRM_API_URL`, and routing timeout values). Set a non-empty `POSTGRES_PASSWORD` in `.env`. Backend settings can also use `SPRING_DATASOURCE_URL`, `SPRING_DATASOURCE_USERNAME`, `SPRING_DATASOURCE_PASSWORD`, `JWT_SECRET`, `JWT_EXPIRATION_MS`, `SERVER_PORT`, `CLEANROUTE_ALLOWED_ORIGINS`, `OBSERVATION_INGESTION_INTERVAL_MS` (default 900000; minimum 60000), `OBSERVATION_PROVIDER_TIMEOUT_MS` (default 5000), and `OBSERVATION_RATE_LIMIT_BACKOFF_MS` (default 60000; maximum 300000). Suitability and notification baselines are configured under `app.routes.suitability` and `app.notifications` in `application.yml`. Provider API keys remain optional placeholders; deterministic mocks are used locally.
+See `.env.example` for Compose ports, PostgreSQL settings, `JWT_SECRET`, observation settings, environmental provider settings, backend geocoding settings, and routing settings. Set a non-empty `POSTGRES_PASSWORD` in `.env`. Use `ENVIRONMENTAL_PROVIDER=mock` for deterministic offline data or `ENVIRONMENTAL_PROVIDER=open-meteo` for Open-Meteo current observations. Open-Meteo uses `OPEN_METEO_API_URL`, `ENVIRONMENTAL_CONNECT_TIMEOUT_MS`, and `ENVIRONMENTAL_READ_TIMEOUT_MS`; the documented non-commercial endpoint does not require an API key. Observation ingestion, scoring, suitability, and notification settings remain configurable in `application.yml`.
 
 ## Current API
 
@@ -112,7 +112,7 @@ In-app notifications are generated when an authenticated dashboard request evalu
 
 Pass the login/register token as `Authorization: Bearer <token>` for user-specific endpoints. Registration requires `email`, `password` (8–72 characters), and `displayName`. Passwords are stored as BCrypt hashes. The Phase 2 schema is created only by Flyway migrations and Hibernate validates it at startup.
 
-AQI history returns 404 for an unknown cell and an empty list for a known cell with no observations. AQI concentrations use canonical `µg/m³` for PM2.5, PM10, NO₂, SO₂, and O₃, and `mg/m³` for CO; AQI remains on the provider's index scale. The current demo cell IDs are `demo-delhi-central`, `demo-delhi-south`, and `demo-delhi-north`.
+AQI history returns 404 for an unknown cell and an empty list for a known cell with no observations. AQI concentrations use canonical `µg/m³` for PM2.5, PM10, NO₂, SO₂, and O₃, and `mg/m³` for CO; AQI remains on the provider's index scale. Open-Meteo provides PM10, PM2.5, carbon monoxide, nitrogen dioxide, sulphur dioxide, and ozone; its values are normalized to these units and its CO is converted from µg/m³ to mg/m³. Open-Meteo observations leave `aqi` null because its European and U.S. AQI standards are not interchangeable with the existing provider-native AQI field. The current demo cell IDs are `demo-delhi-central`, `demo-delhi-south`, and `demo-delhi-north`.
 
 The Phase 4 pollution score is a 0–100 comparative demo estimate; higher values indicate greater modeled burden. Available pollutant concentrations are normalized against configurable reference values and averaged. Provider AQI is used only when all individual pollutant concentrations are missing. Route duration, distance, and travel mode adjust the exposure component; available traffic and weather context are combined with configurable weights, with missing context excluded. Defaults are in `application.yml` under `app.pollution.scoring`. These reference values are model baselines, not regulatory limits or validated health guidance. The endpoint scores a single stored observation interval and does not calculate or rank routes.
 
@@ -132,4 +132,4 @@ docker-compose.yml
 
 ## Current limitations
 
-The historical forecast, pollution scores, suitability ranks, and notifications are transparent demo baselines, not validated health guidance. Route paths are deterministic generated mock alternatives, and their pollution context uses nearest-cell matching against three fixed demo cells rather than dynamic geographic lookup. Green-area, cycling-compatibility, and elevation metadata are not present in the mock routing data. The dashboard uses OpenStreetMap tiles; internet access is required for those tiles. Real external provider integrations remain deferred. Provider freshness is stored per provider and cell; current AQI is marked stale after 30 minutes. Redis is not required.
+The historical forecast, pollution scores, suitability ranks, and notifications are transparent demo baselines, not validated health guidance. Route paths are deterministic generated mock alternatives, and their pollution context uses nearest-cell matching against three fixed demo cells rather than dynamic geographic lookup. Green-area, cycling-compatibility, and elevation metadata are not present in the mock routing data. The dashboard uses OpenStreetMap tiles; internet access is required for those tiles. Open-Meteo is a real external model-backed environmental source when explicitly selected, but it does not make the three-cell application globally environmentally covered. Provider failures, timeouts, malformed responses, missing measurements, and rate limits produce no fabricated observations; failures update freshness and previously stored data are not replaced. Redis is not required.
