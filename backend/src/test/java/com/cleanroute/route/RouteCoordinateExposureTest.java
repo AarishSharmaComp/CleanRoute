@@ -83,12 +83,35 @@ class RouteCoordinateExposureTest {
         assertThat(route.provider()).isEqualTo("osrm");
         assertThat(route.generated()).isFalse();
         assertThat(route.environmentalCoverage()).isEqualTo("complete");
+        assertThat(route.environmentalProvider()).isEqualTo("open-meteo-air-quality");
         assertThat(route.observationSource()).isEqualTo("open-meteo-air-quality");
         assertThat(route.sampledPointCount()).isEqualTo(2);
         assertThat(route.availableSampleCount()).isEqualTo(2);
         assertThat(route.unavailableSampleCount()).isZero();
         assertThat(route.expectedPollutionExposure()).isNotNull().isPositive();
         verify(env).observationsAt(anyList());
+    }
+
+    @Test void partialCoordinateCoverageUsesOnlyAvailableMeasurements() {
+        var env = mock(EnvironmentalDataProvider.class);
+        when(env.providerId()).thenReturn("open-meteo-air-quality");
+        when(env.supportsCoordinateLookup()).thenReturn(true);
+        when(env.observationsAt(anyList())).thenAnswer(call -> {
+            List<EnvironmentalCoordinateQuery> queries = call.getArgument(0);
+            return List.of(new EnvironmentalCoordinateResult(queries.getFirst(),
+                    new PollutionObservation("coordinate", queries.getFirst().observedAt(), null, 20.0,
+                            null, null, null, null, null, "open-meteo-air-quality", false)),
+                    new EnvironmentalCoordinateResult(queries.get(1), null));
+        });
+        var route = service(routing(), env).calculate(request(), UUID.randomUUID()).alternatives().getFirst();
+
+        assertThat(route.environmentalCoverage()).isEqualTo("partial");
+        assertThat(route.environmentalProvider()).isEqualTo("open-meteo-air-quality");
+        assertThat(route.sampledPointCount()).isEqualTo(2);
+        assertThat(route.availableSampleCount()).isEqualTo(1);
+        assertThat(route.unavailableSampleCount()).isEqualTo(1);
+        assertThat(route.environmentalCoveragePercent()).isEqualTo(50.0);
+        assertThat(route.expectedPollutionExposure()).isNotNull();
     }
 
     @Test void realCoordinateModeDoesNotRequireFixedGeographicCells() {

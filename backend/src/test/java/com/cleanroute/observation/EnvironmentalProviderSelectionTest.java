@@ -33,6 +33,14 @@ class EnvironmentalProviderSelectionTest {
                 .run(context -> {
                     assertThat(context).hasNotFailed();
                     assertThat(context.getBean(EnvironmentalDataProvider.class)).isInstanceOf(OpenMeteoEnvironmentalProvider.class);
+        });
+    }
+
+    @Test void invalidProviderDoesNotSilentlySelectMock() {
+        runner.withPropertyValues("app.environmental.provider=unknown")
+                .run(context -> {
+                    assertThat(context).hasNotFailed();
+                    assertThat(context).doesNotHaveBean(EnvironmentalDataProvider.class);
                 });
     }
 

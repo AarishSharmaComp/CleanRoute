@@ -13,6 +13,7 @@ import org.junit.jupiter.api.Test;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import java.time.Duration;
 import java.util.List;
 import com.cleanroute.observation.domain.RoutingModels.Coordinate;
 
@@ -57,6 +58,18 @@ class OpenMeteoEnvironmentalProviderTest {
         assertThat(observation.aqi()).isNull();
     }
 
+    @Test void coordinateResponsePreservesMissingPollutantsAndReturnsUnavailableForEmptySample() throws Exception {
+        var query = new EnvironmentalCoordinateQuery(new Coordinate(28.6, 77.2), Instant.now().plus(Duration.ofHours(2)));
+        String response = "[{\"hourly_units\":{\"time\":\"iso8601\",\"pm10\":\"μg/m³\",\"pm2_5\":\"μg/m³\",\"carbon_monoxide\":\"μg/m³\",\"nitrogen_dioxide\":\"μg/m³\",\"sulphur_dioxide\":\"μg/m³\",\"ozone\":\"μg/m³\"},"
+                + "\"hourly\":{\"time\":[\"2026-09-29T15:00\"],\"pm10\":[null],\"pm2_5\":[12.5],\"carbon_monoxide\":[null],\"nitrogen_dioxide\":[null],\"sulphur_dioxide\":[null],\"ozone\":[null]}}]";
+        var provider = provider(response);
+        var result = provider.observationsAt(List.of(query)).getFirst().observation();
+        assertThat(result.pm25()).isEqualTo(12.5);
+        assertThat(result.pm10()).isNull();
+        assertThat(result.co()).isNull();
+        assertThat(result.aqi()).isNull();
+    }
+
     @Test void malformedResponseAndHttpFailureDoNotBecomeObservations() throws Exception {
         var provider = provider("not-json");
         assertThatThrownBy(() -> provider.observations(cell(), Instant.now()))
@@ -84,29 +97,58 @@ class OpenMeteoEnvironmentalProviderTest {
 
     @Test void batchesCoordinateQueriesAndSelectsHourlyPassageValue() throws Exception {
         server = HttpServer.create(new InetSocketAddress(0), 0);
+        Instant passage = Instant.now().plus(Duration.ofHours(2));
+        String firstHour = java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm")
+                .withZone(java.time.ZoneOffset.UTC).format(passage);
+        String secondHour = java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm")
+                .withZone(java.time.ZoneOffset.UTC).format(passage.plusSeconds(3600));
         server.createContext("/", exchange -> {
-            byte[] bytes = """
-                    [{"hourly_units":{"time":"iso8601","pm10":"μg/m³","pm2_5":"μg/m³","carbon_monoxide":"μg/m³","nitrogen_dioxide":"μg/m³","sulphur_dioxide":"μg/m³","ozone":"μg/m³"},
-                      "hourly":{"time":["2026-09-29T15:00","2026-09-29T16:00"],"pm10":[10,20],"pm2_5":[5,10],"carbon_monoxide":[100,200],"nitrogen_dioxide":[1,2],"sulphur_dioxide":[1,2],"ozone":[30,40]}},
-                     {"hourly_units":{"time":"iso8601","pm10":"μg/m³","pm2_5":"μg/m³","carbon_monoxide":"μg/m³","nitrogen_dioxide":"μg/m³","sulphur_dioxide":"μg/m³","ozone":"μg/m³"},
-                      "hourly":{"time":["2026-09-29T15:00","2026-09-29T16:00"],"pm10":[30,40],"pm2_5":[15,20],"carbon_monoxide":[300,400],"nitrogen_dioxide":[3,4],"sulphur_dioxide":[3,4],"ozone":[50,60]}}]
-                    """.getBytes(StandardCharsets.UTF_8);
             String request = exchange.getRequestURI().toString();
             if (!request.contains("latitude=28.6,28.7") || !request.contains("start_hour=")) throw new AssertionError(request);
+            String body = "[{\"hourly_units\":{\"time\":\"iso8601\",\"pm10\":\"μg/m³\",\"pm2_5\":\"μg/m³\",\"carbon_monoxide\":\"μg/m³\",\"nitrogen_dioxide\":\"μg/m³\",\"sulphur_dioxide\":\"μg/m³\",\"ozone\":\"μg/m³\"},"
+                    + "\"hourly\":{\"time\":[\"" + firstHour + "\",\"" + secondHour + "\"],\"pm10\":[10,20],\"pm2_5\":[5,10],\"carbon_monoxide\":[100,200],\"nitrogen_dioxide\":[1,2],\"sulphur_dioxide\":[1,2],\"ozone\":[30,40]}},"
+                    + "{\"hourly_units\":{\"time\":\"iso8601\",\"pm10\":\"μg/m³\",\"pm2_5\":\"μg/m³\",\"carbon_monoxide\":\"μg/m³\",\"nitrogen_dioxide\":\"μg/m³\",\"sulphur_dioxide\":\"μg/m³\",\"ozone\":\"μg/m³\"},"
+                    + "\"hourly\":{\"time\":[\"" + firstHour + "\",\"" + secondHour + "\"],\"pm10\":[30,40],\"pm2_5\":[15,20],\"carbon_monoxide\":[300,400],\"nitrogen_dioxide\":[3,4],\"sulphur_dioxide\":[3,4],\"ozone\":[50,60]}}]";
+            byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
             exchange.sendResponseHeaders(200, bytes.length); exchange.getResponseBody().write(bytes); exchange.close();
         });
         server.start();
         var provider = new OpenMeteoEnvironmentalProvider(properties("http://localhost:" + server.getAddress().getPort()), new ObjectMapper());
-        var queries = List.of(new EnvironmentalCoordinateQuery(new Coordinate(28.6, 77.2), Instant.parse("2026-09-29T15:20:00Z")),
-                new EnvironmentalCoordinateQuery(new Coordinate(28.7, 77.3), Instant.parse("2026-09-29T15:40:00Z")));
+        var queries = List.of(new EnvironmentalCoordinateQuery(new Coordinate(28.6, 77.2), passage.plusSeconds(20 * 60)),
+                new EnvironmentalCoordinateQuery(new Coordinate(28.7, 77.3), passage.plusSeconds(40 * 60)));
 
         var results = provider.observationsAt(queries);
 
         assertThat(results).hasSize(2);
         assertThat(results.getFirst().observation().pm25()).isEqualTo(5.0);
         assertThat(results.getFirst().observation().co()).isEqualTo(0.1);
-        assertThat(results.getFirst().observation().observedAt()).isEqualTo(Instant.parse("2026-09-29T15:00:00Z"));
+        assertThat(results.getFirst().observation().observedAt()).isEqualTo(java.time.LocalDateTime.parse(firstHour).toInstant(java.time.ZoneOffset.UTC));
         assertThat(results.get(1).observation().pm25()).isEqualTo(20.0);
+    }
+
+    @Test void batchesLargeRouteSamplesWithoutDroppingOrder() throws Exception {
+        server = HttpServer.create(new InetSocketAddress(0), 0);
+        var requests = new java.util.concurrent.atomic.AtomicInteger();
+        server.createContext("/", exchange -> {
+            requests.incrementAndGet();
+            String uri = exchange.getRequestURI().toString();
+            String item = "{\"hourly_units\":{\"time\":\"iso8601\",\"pm10\":\"μg/m³\",\"pm2_5\":\"μg/m³\",\"carbon_monoxide\":\"μg/m³\",\"nitrogen_dioxide\":\"μg/m³\",\"sulphur_dioxide\":\"μg/m³\",\"ozone\":\"μg/m³\"},\"hourly\":{\"time\":[\"2026-09-29T15:00\"],\"pm10\":[10],\"pm2_5\":[5],\"carbon_monoxide\":[100],\"nitrogen_dioxide\":[1],\"sulphur_dioxide\":[1],\"ozone\":[30]}}";
+            int actualCount = uri.contains("latitude=") ? uri.split("latitude=")[1].split("&")[0].split(",").length : 0;
+            String body = "[" + java.util.stream.IntStream.range(0, actualCount).mapToObj(ignored -> item).collect(java.util.stream.Collectors.joining(",")) + "]";
+            byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, bytes.length); exchange.getResponseBody().write(bytes); exchange.close();
+        });
+        server.start();
+        var provider = new OpenMeteoEnvironmentalProvider(properties("http://localhost:" + server.getAddress().getPort()), new ObjectMapper());
+        List<EnvironmentalCoordinateQuery> queries = new java.util.ArrayList<>();
+        Instant passage = Instant.now().plus(Duration.ofHours(2));
+        for (int i = 0; i < 101; i++) queries.add(new EnvironmentalCoordinateQuery(new Coordinate(28.6 + i * 0.001, 77.2), passage));
+
+        var results = provider.observationsAt(queries);
+
+        assertThat(requests).hasValue(2);
+        assertThat(results).hasSize(101);
+        assertThat(results.get(100).query()).isEqualTo(queries.get(100));
     }
 
     private OpenMeteoEnvironmentalProvider provider(String body) throws Exception {

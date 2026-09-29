@@ -24,6 +24,7 @@ import java.time.LocalDateTime;
 @Component
 @ConditionalOnProperty(name = "app.environmental.provider", havingValue = "open-meteo")
 public class OpenMeteoEnvironmentalProvider implements EnvironmentalDataProvider {
+    private static final int MAX_COORDINATES_PER_REQUEST = 100;
     private static final String UNIT = "μg/m³";
     private final EnvironmentalProperties properties;
     private final ObjectMapper mapper;
@@ -41,7 +42,17 @@ public class OpenMeteoEnvironmentalProvider implements EnvironmentalDataProvider
 
     @Override
     public List<EnvironmentalCoordinateResult> observationsAt(List<EnvironmentalCoordinateQuery> queries) {
-        if (queries == null || queries.isEmpty() || queries.size() > 100) throw ProviderFailureException.temporary();
+        if (queries == null || queries.isEmpty()) throw ProviderFailureException.temporary();
+        List<EnvironmentalCoordinateResult> results = new ArrayList<>(queries.size());
+        for (int start = 0; start < queries.size(); start += MAX_COORDINATES_PER_REQUEST) {
+            List<EnvironmentalCoordinateQuery> batch = queries.subList(start,
+                    Math.min(queries.size(), start + MAX_COORDINATES_PER_REQUEST));
+            results.addAll(observationsAtBatch(batch));
+        }
+        return List.copyOf(results);
+    }
+
+    private List<EnvironmentalCoordinateResult> observationsAtBatch(List<EnvironmentalCoordinateQuery> queries) {
         Instant start = queries.stream().map(EnvironmentalCoordinateQuery::observedAt).min(Instant::compareTo).orElseThrow();
         Instant end = queries.stream().map(EnvironmentalCoordinateQuery::observedAt).max(Instant::compareTo).orElseThrow();
         if (start.isBefore(Instant.now().minus(Duration.ofHours(1))) || end.isAfter(Instant.now().plus(Duration.ofDays(7))))
@@ -52,7 +63,7 @@ public class OpenMeteoEnvironmentalProvider implements EnvironmentalDataProvider
             String query = "?latitude=" + latitudes + "&longitude=" + longitudes
                     + "&hourly=pm10,pm2_5,carbon_monoxide,nitrogen_dioxide,sulphur_dioxide,ozone"
                     + "&start_hour=" + hour(start) + "&end_hour=" + hour(end.plus(Duration.ofHours(1))) + "&timezone=UTC";
-            HttpRequest request = HttpRequest.newBuilder(URI.create(properties.getOpenMeteoUrl() + query))
+            HttpRequest request = HttpRequest.newBuilder(URI.create(appendQuery(properties.getOpenMeteoUrl(), query)))
                     .header("Accept", "application/json").timeout(Duration.ofMillis(timeout(properties.getReadTimeoutMs()))).GET().build();
             HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() == 429) throw ProviderFailureException.rateLimited(Duration.ofMinutes(1));
@@ -74,7 +85,7 @@ public class OpenMeteoEnvironmentalProvider implements EnvironmentalDataProvider
         try {
             String query = "?latitude=" + cell.latitude() + "&longitude=" + cell.longitude()
                     + "&current=pm10,pm2_5,carbon_monoxide,nitrogen_dioxide,sulphur_dioxide,ozone&timezone=UTC";
-            HttpRequest request = HttpRequest.newBuilder(URI.create(properties.getOpenMeteoUrl() + query))
+            HttpRequest request = HttpRequest.newBuilder(URI.create(appendQuery(properties.getOpenMeteoUrl(), query)))
                     .header("Accept", "application/json")
                     .timeout(Duration.ofMillis(timeout(properties.getReadTimeoutMs())))
                     .GET().build();
@@ -161,6 +172,7 @@ public class OpenMeteoEnvironmentalProvider implements EnvironmentalDataProvider
     }
 
     private static String hour(Instant instant) { return DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm").withZone(ZoneOffset.UTC).format(instant); }
+    private static String appendQuery(String base, String query) { return base + (base.contains("?") ? "&" : "?") + query.substring(1); }
     private static String coordinateId(com.cleanroute.observation.domain.RoutingModels.Coordinate c) { return "coordinate:" + c.latitude() + ":" + c.longitude(); }
 
     private static void requireUnit(JsonNode units, String field) {

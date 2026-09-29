@@ -132,7 +132,7 @@ public class RouteService {
             Map<String, Double> components = components(r, c, request.preference());
             results.add(new RouteAlternative(c.path().alternativeId(), i + 1, c.path().provider(), c.path().generated(),
                     c.path().geometry(), c.path().distanceMeters(), c.path().estimatedDurationSeconds(), c.exposure(),
-                    c.quality(), round(r.score()), components, reasons(request.preference(), r, c), c.coverage(),
+                    c.quality(), round(r.score()), components, reasons(request.preference(), r, c), c.environmentalProvider(), c.coverage(),
                     c.source(), c.sampled(), c.available(), c.unavailable(), c.coveragePercent(), explanation(request.preference(), i + 1,
                     candidates.size(), c, fastest, cleanest, sufficientCleanestCoverage, ranked, candidates)));
         }
@@ -216,8 +216,9 @@ public class RouteService {
         }
         int unavailable = samples.size() - available;
         String coverage = available == 0 ? "unavailable" : available == samples.size() ? "fixed-cell" : "partial";
+        String environmentalProvider = environmental == null ? "fixed-cell" : environmental.providerId();
         return new Candidate(path, weights == 0 ? null : round(weighted / weights), weights == 0 ? null : quality,
-                trafficWeights == 0 ? null : congestionWeighted / trafficWeights, coverage, "historical-forecast",
+                trafficWeights == 0 ? null : congestionWeighted / trafficWeights, environmentalProvider, coverage, "historical-forecast",
                 samples.size(), available, unavailable, samples.isEmpty() ? null : round(available * 100.0 / samples.size()));
     }
 
@@ -230,10 +231,10 @@ public class RouteService {
         List<EnvironmentalCoordinateResult> results;
         try { results = environmental.observationsAt(queries); }
         catch (ProviderFailureException failure) {
-            return new Candidate(path, null, null, null, "unavailable", environmental.providerId(), samples.size(), 0, samples.size(), 0.0);
+            return new Candidate(path, null, null, null, environmental.providerId(), "unavailable", environmental.providerId(), samples.size(), 0, samples.size(), 0.0);
         }
         if (results == null || results.size() != samples.size())
-            return new Candidate(path, null, null, null, "unavailable", environmental.providerId(), samples.size(), 0, samples.size(), 0.0);
+            return new Candidate(path, null, null, null, environmental.providerId(), "unavailable", environmental.providerId(), samples.size(), 0, samples.size(), 0.0);
         double weighted = 0, weights = 0; int available = 0;
         for (int i = 0; i < results.size(); i++) {
             EnvironmentalCoordinateResult result = results.get(i);
@@ -251,7 +252,7 @@ public class RouteService {
                 weighted += burden * weight; weights += weight; available++;
             } catch (PollutionEngine.InsufficientPollutionDataException ignored) { }
         }
-        return new Candidate(path, weights == 0 ? null : round(weighted / weights), null, null,
+        return new Candidate(path, weights == 0 ? null : round(weighted / weights), null, null, environmental.providerId(),
                 available == samples.size() ? "complete" : available == 0 ? "unavailable" : "partial", environmental.providerId(), samples.size(), available, samples.size() - available,
                 samples.isEmpty() ? null : round(available * 100.0 / samples.size()));
     }
@@ -443,7 +444,8 @@ public class RouteService {
         return String.format(Locale.ROOT, "%.5f, %.5f", coordinate.latitude(), coordinate.longitude());
     }
     private record Candidate(RoutePath path, Double exposure, Integer quality, Double congestionFactor,
-                              String coverage, String source, int sampled, int available, int unavailable, Double coveragePercent) {}
+                              String environmentalProvider, String coverage, String source, int sampled,
+                              int available, int unavailable, Double coveragePercent) {}
     private record Ranked(Candidate candidate, double durationEfficiency, double score, Double trafficComfort,
                           Double distanceSuitability, Double cyclingCompatibility, Double elevationSuitability,
                           Double greenAreaPreference) {}
