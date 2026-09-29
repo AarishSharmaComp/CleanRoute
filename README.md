@@ -79,7 +79,7 @@ The frontend provides place-name journey planning, current conditions, observed/
 
 ## Configuration
 
-See `.env.example` for Compose ports, PostgreSQL settings, `JWT_SECRET`, observation settings, environmental provider settings, backend geocoding settings, and routing settings. Set a non-empty `POSTGRES_PASSWORD` in `.env`. Use `ENVIRONMENTAL_PROVIDER=mock` for deterministic offline data or `ENVIRONMENTAL_PROVIDER=open-meteo` for Open-Meteo current observations. Open-Meteo uses `OPEN_METEO_API_URL`, `ENVIRONMENTAL_CONNECT_TIMEOUT_MS`, and `ENVIRONMENTAL_READ_TIMEOUT_MS`; the documented non-commercial endpoint does not require an API key. Observation ingestion, scoring, suitability, and notification settings remain configurable in `application.yml`.
+See `.env.example` for Compose ports, PostgreSQL settings, `JWT_SECRET`, observation settings, environmental provider settings, backend geocoding settings, and routing settings. Set a non-empty `POSTGRES_PASSWORD` in `.env`. Use `ENVIRONMENTAL_PROVIDER=mock` for deterministic offline data or `ENVIRONMENTAL_PROVIDER=open-meteo` for Open-Meteo. Route environmental sampling is bounded by `ENVIRONMENTAL_MAX_ROUTE_SAMPLE_POINTS` and `ENVIRONMENTAL_ROUTE_SAMPLE_INTERVAL_METERS`. Open-Meteo uses `OPEN_METEO_API_URL` and the environmental timeout settings; its documented non-commercial endpoint does not require an API key.
 
 ## Current API
 
@@ -107,6 +107,8 @@ See `.env.example` for Compose ports, PostgreSQL settings, `JWT_SECRET`, observa
 | `GET` | `/api/routes/{id}` | Retrieve the authenticated user's saved route calculation |
 
 Route calculations accept FASTEST, CLEANEST, BALANCED, JOGGER, and CYCLIST preferences. JOGGER requires JOG mode; CYCLIST requires CYCLE mode. Suitability weights and thresholds are configurable under `app.routes.suitability`. Mock routes have no green-space, cycling-compatibility, or elevation metadata, so those factors are reported as unavailable and excluded. OSRM currently returns one primary route; it does not fabricate alternatives. Route results and saved data are scoped to the signed-in user. OSRM road geometry does not make the fixed-cell environmental observations or forecasts real-world coverage.
+
+With `ENVIRONMENTAL_PROVIDER=open-meteo`, each actual route path is sampled at bounded distance-based points including endpoints; one batched hourly coordinate request provides pollution model values for passage times. Route geometry/distance/duration stay as returned by routing. Exposure is still a CleanRoute pollutant-reference model over available samples, not direct measured route exposure. Unsupported times, missing measurements, or provider failures yield unavailable/partial environmental coverage; no fixed-cell or mock fallback is used in this mode. Open-Meteo uses model grids (documented global resolution about 45 km, Europe about 11 km), so this is not station-level or globally complete real-time coverage.
 
 In-app notifications are generated when an authenticated dashboard request evaluates a high forecast or when a route calculation includes a materially cleaner alternative. The thresholds are configurable under `app.notifications`; user notification preferences are respected. Delivery is behind a provider interface and currently stores notifications in PostgreSQL only.
 

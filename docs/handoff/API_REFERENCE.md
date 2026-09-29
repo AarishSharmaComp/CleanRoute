@@ -116,7 +116,7 @@ Route response shape (values are illustrative, not measurements):
 }
 ```
 
-The example intentionally shows optional numeric values as `null`; clients must render unavailable data as unavailable. Do not treat this sample as a guaranteed route output. Exact DTO definitions in `route/domain/RoutePlanningModels.java` are authoritative.
+The example intentionally shows optional numeric values as `null`; clients must render unavailable data as unavailable. Do not treat this sample as a guaranteed route output. Exact DTO definitions in `route/domain/RoutePlanningModels.java` are authoritative. Phase 13 route alternatives may additionally contain `environmentalCoverage` (`fixed-cell`, `complete`, `partial`, or `unavailable`), `observationSource`, `sampledPointCount`, `availableSampleCount`, and `unavailableSampleCount`; these are additive provenance and coverage fields.
 
 ## Endpoint groups not present
 

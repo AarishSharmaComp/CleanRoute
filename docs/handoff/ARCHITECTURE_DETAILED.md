@@ -141,6 +141,14 @@ Open-Meteo currently supplies PM10, PM2.5, carbon monoxide, nitrogen dioxide, su
 
 HTTP non-2xx responses, rate limits, timeouts, network errors, malformed JSON, unexpected units, and responses with no measurements become typed provider failures. The scheduler records failure freshness and continues weather/traffic/cell work; it never substitutes mock values or persists fabricated observations. The real provider is an external model-backed source, not a claim of station-level real-time or global environmental coverage.
 
+### Phase 13 route/environment integration
+
+For route requests, the real coordinate lookup extension is used only when the selected environmental provider supports it (`open-meteo`). `RouteSampler` deterministically samples the actual route geometry by cumulative haversine distance, always retaining the endpoints and enforcing configured interval/max-point bounds. Each sample passage time is departure plus the fraction of route distance times the provider route duration. OSRM geometry, reported distance, and duration are not modified.
+
+The samples are sent as a single comma-separated-coordinate batch to Open-Meteo's hourly API. The adapter requests the bounded UTC hour range, uses the nearest returned hourly value for each passage time, preserves the returned observation timestamp, and normalizes units as in Phase 12. The documented hourly API supports forecast up to seven days; historical lookups are not claimed. Queries older than the supported recent window or later than seven days are unavailable. Provider failures result in null exposure and unavailable sample metadata; null/missing pollutant values are excluded by the existing `PollutionEngine` and never replaced with fixed-cell or mock data.
+
+The existing mock environmental mode continues to use the stored fixed-cell historical forecast route pipeline. Real coordinate exposure averages available pollutant burden assessments weighted by represented route distance. Ranking preferences and weights remain the existing policy; when environmental exposure is unavailable, pollution ranking components are omitted from response metadata and CLEANEST ties do not claim pollution ordering. Additive route fields report coverage (`complete`, `partial`, `unavailable`, or legacy `fixed-cell`), source, and sample counts. Open-Meteo grid resolution is approximately 45 km globally and 11 km in Europe; it provides model-based values, not measurements at every route point or globally complete real-time observations.
+
 ## Forecast lifecycle
 
 ```mermaid

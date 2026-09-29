@@ -38,12 +38,13 @@ The project is a **local-development / deterministic-demo application**, not a p
 - Mock AQI, weather, and traffic providers generate values from timestamps and fixed cell IDs. Mock pollutant values may be null. Their values are labeled generated and must not be described as real observations.
 - The historical forecast provider is a time-slot/day-of-week historical average with exponential recency weighting and fallbacks for sparse history. It is not a real weather/air-quality forecast or ML model.
 - The `MockRoutingProvider` returns a direct path and two deterministic detours for alternatives. Geometry, distance, duration, and provider are demo outputs; these are not road-network navigation directions. `OSRMRoutingProvider` is an opt-in provider that returns one normalized OSRM road route without fabricating alternatives.
-- Route exposure is an estimated comparative baseline assembled from mock forecast data and nearest fixed demo-cell selection. It is not validated health guidance.
+- Route exposure is an estimated comparative model. Mock mode uses historical forecasts and nearest fixed demo-cell selection; real Open-Meteo mode uses bounded coordinate/hour samples along the actual route. It is not validated health guidance.
 - The backend Photon adapter calls the public service over the internet. Search results are external geocoder data; route geometry still comes from the mock routing provider.
 
 ### Incomplete, unavailable, or deferred
 
 - Open-Meteo is the only real environmental integration. There are no real weather or traffic integrations. OSRM is an optional road-routing integration; none of these integrations provide global CleanRoute environmental coverage.
+- Phase 13 connects real route geometry to bounded coordinate/time Open-Meteo samples. Exposure remains a CleanRoute model over model-grid concentrations, not direct sensor readings along roads.
 - Geographic lookup is limited to three fixed deterministic demo cells. There is no arbitrary coordinate-to-area lookup service or PostGIS.
 - Mock route paths do not provide green-area, cycling compatibility, or elevation metadata. JOGGER/CYCLIST scoring reports unavailable metadata and excludes it when absent. The RoutePath model can carry these optional values for a future provider.
 - Per-route AQI is not a response field. Route cards must not assign the current cell AQI to a route.

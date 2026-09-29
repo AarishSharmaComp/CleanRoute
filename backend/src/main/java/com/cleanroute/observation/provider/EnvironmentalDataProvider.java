@@ -12,4 +12,10 @@ public interface EnvironmentalDataProvider {
 
     /** Real-time providers cannot safely replay a requested historical timestamp. */
     default boolean supportsHistoricalIngestion() { return true; }
+
+    default boolean supportsCoordinateLookup() { return false; }
+
+    default List<EnvironmentalCoordinateResult> observationsAt(List<EnvironmentalCoordinateQuery> queries) {
+        throw ProviderFailureException.temporary();
+    }
 }

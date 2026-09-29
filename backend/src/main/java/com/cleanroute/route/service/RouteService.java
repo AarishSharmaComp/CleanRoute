@@ -10,6 +10,10 @@ import com.cleanroute.observation.domain.RoutingModels.RoutePath;
 import com.cleanroute.observation.domain.RoutingModels.RoutingRequest;
 import com.cleanroute.observation.provider.RoutingProvider;
 import com.cleanroute.observation.provider.ProviderFailureException;
+import com.cleanroute.observation.provider.EnvironmentalDataProvider;
+import com.cleanroute.observation.provider.EnvironmentalCoordinateQuery;
+import com.cleanroute.observation.provider.EnvironmentalCoordinateResult;
+import com.cleanroute.observation.config.EnvironmentalProperties;
 import com.cleanroute.observation.repository.ObservationRepository;
 import com.cleanroute.pollution.domain.ForecastModels.PollutionForecast;
 import com.cleanroute.pollution.service.PollutionEngine;
@@ -40,7 +44,7 @@ import java.util.Locale;
 @Service
 public class RouteService {
     private static final String MOCK_LIMITATION = "Generated mock alternatives and nearest fixed demo-cell forecasts; exposure is a comparative baseline, not health guidance.";
-    private static final String REAL_ROUTE_LIMITATION = "Road geometry and travel estimates come from the configured routing provider; environmental exposure remains a comparative baseline from nearest fixed demo-cell forecasts, not health guidance.";
+    private static final String REAL_ROUTE_LIMITATION = "Road geometry and travel estimates come from the configured routing provider; environmental exposure is calculated from available coordinate samples and remains a comparative model, not health guidance.";
     private final RoutingProvider routing;
     private final ObservationRepository observations;
     private final PollutionForecastService forecasts;
@@ -48,18 +52,28 @@ public class RouteService {
     private final RouteCalculationRepository calculations;
     private final ObjectMapper mapper;
     private final RouteSuitabilityProperties suitability;
+    private final EnvironmentalDataProvider environmental;
+    private final EnvironmentalProperties environmentalProperties;
 
     @Autowired
     public RouteService(RoutingProvider routing, ObservationRepository observations, PollutionForecastService forecasts,
                        PollutionEngine engine, RouteCalculationRepository calculations, ObjectMapper mapper,
-                       RouteSuitabilityProperties suitability) {
+                       RouteSuitabilityProperties suitability, EnvironmentalDataProvider environmental,
+                       EnvironmentalProperties environmentalProperties) {
         this.routing = routing; this.observations = observations; this.forecasts = forecasts;
         this.engine = engine; this.calculations = calculations; this.mapper = mapper; this.suitability = suitability;
+        this.environmental = environmental; this.environmentalProperties = environmentalProperties;
     }
 
     public RouteService(RoutingProvider routing, ObservationRepository observations, PollutionForecastService forecasts,
                        PollutionEngine engine, RouteCalculationRepository calculations, ObjectMapper mapper) {
-        this(routing, observations, forecasts, engine, calculations, mapper, new RouteSuitabilityProperties());
+        this(routing, observations, forecasts, engine, calculations, mapper, new RouteSuitabilityProperties(), null, new EnvironmentalProperties());
+    }
+
+    public RouteService(RoutingProvider routing, ObservationRepository observations, PollutionForecastService forecasts,
+                        PollutionEngine engine, RouteCalculationRepository calculations, ObjectMapper mapper,
+                        RouteSuitabilityProperties suitability) {
+        this(routing, observations, forecasts, engine, calculations, mapper, suitability, null, new EnvironmentalProperties());
     }
 
     @Transactional
@@ -74,7 +88,8 @@ public class RouteService {
         Instant departure = request.departureAt() == null ? ceilQuarter(Instant.now().plusSeconds(1)) : request.departureAt();
         if (!departure.isAfter(Instant.now())) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Departure time must be in the future");
         List<GeographicCell> cells = observations.cells();
-        if (cells.isEmpty()) throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "No geographic cells are configured");
+        boolean coordinateLookup = environmental != null && environmental.supportsCoordinateLookup();
+        if (cells.isEmpty() && !coordinateLookup) throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "No geographic cells are configured");
         List<RoutePath> paths;
         try {
             paths = routing.alternatives(new RoutingRequest(request.origin(), request.destination(), request.mode()));
@@ -95,7 +110,8 @@ public class RouteService {
             Map<String, Double> components = components(r, c, request.preference());
             results.add(new RouteAlternative(c.path().alternativeId(), i + 1, c.path().provider(), c.path().generated(),
                     c.path().geometry(), c.path().distanceMeters(), c.path().estimatedDurationSeconds(), c.exposure(),
-                    c.quality(), round(r.score()), components, reasons(request.preference(), r, c)));
+                    c.quality(), round(r.score()), components, reasons(request.preference(), r, c), c.coverage(),
+                    c.source(), c.sampled(), c.available(), c.unavailable()));
         }
         boolean generated = paths.stream().anyMatch(RoutePath::generated);
         CalculationResult result = new CalculationResult(UUID.randomUUID(), departure, request.mode(), request.preference(),
@@ -134,6 +150,8 @@ public class RouteService {
         if (points.stream().anyMatch(p -> p == null || !Double.isFinite(p.latitude()) || p.latitude() < -90 || p.latitude() > 90
                 || !Double.isFinite(p.longitude()) || p.longitude() < -180 || p.longitude() > 180))
             throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY, "Routing provider returned invalid geometry");
+        if (environmental != null && environmental.supportsCoordinateLookup())
+            return coordinateExposure(path, departure);
         double totalGeometryDistance = 0;
         List<Double> legs = new ArrayList<>();
         for (int i = 1; i < points.size(); i++) {
@@ -164,8 +182,43 @@ public class RouteService {
             }
             traversed += length;
         }
-        return new Candidate(path, weights == 0 ? 0 : round(weighted / weights), quality,
-                trafficWeights == 0 ? null : congestionWeighted / trafficWeights);
+        return new Candidate(path, weights == 0 ? 0.0 : round(weighted / weights), quality,
+                trafficWeights == 0 ? null : congestionWeighted / trafficWeights, "fixed-cell", "historical-forecast", 0, 0, 0);
+    }
+
+    private Candidate coordinateExposure(RoutePath path, Instant departure) {
+        List<RouteSampler.Sample> samples = RouteSampler.sample(path.geometry(), environmentalProperties.getRouteSampleIntervalMeters(),
+                environmentalProperties.getMaxRouteSamplePoints());
+        double sampledRouteDistance = samples.getLast().distanceFromStartMeters();
+        List<EnvironmentalCoordinateQuery> queries = samples.stream().map(sample -> new EnvironmentalCoordinateQuery(
+                sample.coordinate(), departure.plusMillis(Math.round(path.estimatedDurationSeconds() * 1000.0
+                        * sample.distanceFromStartMeters() / Math.max(sampledRouteDistance, 1.0))))).toList();
+        List<EnvironmentalCoordinateResult> results;
+        try { results = environmental.observationsAt(queries); }
+        catch (ProviderFailureException failure) {
+            return new Candidate(path, null, null, null, "unavailable", environmental.providerId(), samples.size(), 0, samples.size());
+        }
+        if (results == null || results.size() != samples.size())
+            return new Candidate(path, null, null, null, "unavailable", environmental.providerId(), samples.size(), 0, samples.size());
+        double weighted = 0, weights = 0; int available = 0;
+        for (int i = 0; i < results.size(); i++) {
+            EnvironmentalCoordinateResult result = results.get(i);
+            if (result == null || result.observation() == null) continue;
+            try {
+                double burden = engine.assess(result.observation()).burdenScore();
+                double weight;
+                if (samples.size() == 2) weight = path.distanceMeters() / 2.0;
+                else if (i == 0) weight = samples.get(1).distanceFromStartMeters() / 2.0;
+                else if (i == samples.size() - 1) weight = (samples.get(i).distanceFromStartMeters()
+                        - samples.get(i - 1).distanceFromStartMeters()) / 2.0;
+                else weight = (samples.get(i + 1).distanceFromStartMeters()
+                        - samples.get(i - 1).distanceFromStartMeters()) / 2.0;
+                weight = Math.max(1, weight);
+                weighted += burden * weight; weights += weight; available++;
+            } catch (PollutionEngine.InsufficientPollutionDataException ignored) { }
+        }
+        return new Candidate(path, weights == 0 ? null : round(weighted / weights), null, null,
+                available == samples.size() ? "complete" : "partial", environmental.providerId(), samples.size(), available, samples.size() - available);
     }
 
     private static GeographicCell nearest(Coordinate point, List<GeographicCell> cells) {
@@ -174,7 +227,9 @@ public class RouteService {
 
     private Ranked rank(Candidate c, RoutePreference pref, double maxDuration) {
         double durationEfficiency = 100.0 * (1 - (double)c.path().estimatedDurationSeconds() / maxDuration);
-        double cleanliness = clamp(100 - c.exposure());
+        double cleanliness = c.exposure() == null ? 0 : clamp(100 - c.exposure());
+        double exposure = c.exposure() == null ? 100 : c.exposure();
+        boolean pollutionAvailable = c.exposure() != null;
         Double trafficComfort = c.congestionFactor() == null ? null : thresholdScore(c.congestionFactor(),
                 pref == RoutePreference.CYCLIST ? suitability.getCyclistMaximumCongestionFactor()
                         : suitability.getJoggerMaximumCongestionFactor(), 25);
@@ -186,22 +241,22 @@ public class RouteService {
         double score = switch (pref) {
             case FASTEST -> durationEfficiency;
             case CLEANEST -> cleanliness;
-            case BALANCED -> 0.5 * durationEfficiency + 0.5 * cleanliness;
+            case BALANCED -> pollutionAvailable ? 0.5 * durationEfficiency + 0.5 * cleanliness : durationEfficiency;
             case JOGGER -> weightedScore(
-                    new double[]{thresholdScore(c.exposure(), suitability.getJoggerMaximumPollutionExposure(), 2),
+                    new double[]{thresholdScore(exposure, suitability.getJoggerMaximumPollutionExposure(), 2),
                             trafficComfort == null ? 0 : trafficComfort, distanceSuitability,
                             greenAreaPreference == null ? 0 : greenAreaPreference},
                     new double[]{suitability.getPollutionWeight(), suitability.getTrafficWeight(),
                             suitability.getDistanceWeight(), 0.05},
-                    new boolean[]{true, trafficComfort != null, true,
+                    new boolean[]{pollutionAvailable, trafficComfort != null, true,
                             suitability.isPreferGreenAreas() && greenAreaPreference != null});
             case CYCLIST -> weightedScore(
-                    new double[]{thresholdScore(c.exposure(), suitability.getCyclistMaximumPollutionExposure(), 2), trafficComfort == null ? 0 : trafficComfort,
+                     new double[]{thresholdScore(exposure, suitability.getCyclistMaximumPollutionExposure(), 2), trafficComfort == null ? 0 : trafficComfort,
                             cyclingCompatibility == null ? 0 : cyclingCompatibility,
                             elevationSuitability == null ? 0 : elevationSuitability,
                             greenAreaPreference == null ? 0 : greenAreaPreference},
                     new double[]{0.45, 0.30, 0.10, 0.10, 0.05},
-                    new boolean[]{true, trafficComfort != null, cyclingCompatibility != null,
+                     new boolean[]{pollutionAvailable, trafficComfort != null, cyclingCompatibility != null,
                             elevationSuitability != null, suitability.isPreferGreenAreas() && greenAreaPreference != null});
             default -> throw new IllegalArgumentException("Unsupported route preference");
         };
@@ -212,7 +267,7 @@ public class RouteService {
     private List<String> reasons(RoutePreference preference, Ranked ranked, Candidate candidate) {
         return switch (preference) {
             case FASTEST -> List.of("Ranked by estimated travel time.", "Pollution exposure is reported but does not change FASTEST ordering.");
-            case CLEANEST -> List.of("Ranked by route-distance-weighted pollution exposures evaluated at estimated passage times.", "Travel time is reported but does not change CLEANEST ordering.");
+            case CLEANEST -> candidate.exposure() == null ? List.of("Environmental coverage was unavailable; pollution ordering was not available.") : List.of("Ranked by route-distance-weighted pollution exposures evaluated at estimated passage times.", "Travel time is reported but does not change CLEANEST ordering.");
             case BALANCED -> List.of("Balances normalized travel-time efficiency and pollution cleanliness equally.");
             case JOGGER -> {
                 List<String> reasons = new ArrayList<>(List.of("Ranks lower-pollution, lower-traffic routes and favors distances around the configured jogger range."));
@@ -237,8 +292,10 @@ public class RouteService {
     private Map<String, Double> components(Ranked ranked, Candidate candidate, RoutePreference preference) {
         Map<String, Double> values = new java.util.LinkedHashMap<>();
         values.put("durationEfficiency", ranked.durationEfficiency());
-        values.put("pollutionCleanliness", clamp(100 - candidate.exposure()));
-        values.put("expectedPollutionExposure", candidate.exposure());
+        if (candidate.exposure() != null) {
+            values.put("pollutionCleanliness", clamp(100 - candidate.exposure()));
+            values.put("expectedPollutionExposure", candidate.exposure());
+        }
         if (ranked.trafficComfort() != null) values.put("trafficComfort", ranked.trafficComfort());
         if (preference == RoutePreference.JOGGER) values.put("distanceSuitability", ranked.distanceSuitability());
         if (ranked.cyclingCompatibility() != null) values.put("cyclingCompatibility", ranked.cyclingCompatibility());
@@ -295,7 +352,8 @@ public class RouteService {
     private static String coordinateName(Coordinate coordinate) {
         return String.format(Locale.ROOT, "%.5f, %.5f", coordinate.latitude(), coordinate.longitude());
     }
-    private record Candidate(RoutePath path, double exposure, int quality, Double congestionFactor) {}
+    private record Candidate(RoutePath path, Double exposure, Integer quality, Double congestionFactor,
+                             String coverage, String source, int sampled, int available, int unavailable) {}
     private record Ranked(Candidate candidate, double durationEfficiency, double score, Double trafficComfort,
                           Double distanceSuitability, Double cyclingCompatibility, Double elevationSuitability,
                           Double greenAreaPreference) {}

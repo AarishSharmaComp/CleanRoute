@@ -16,6 +16,7 @@ The current implementation plan defines Phases 1–10. Git history contains six 
 | 10 | Hardening. | DB-aware health, CORS, validation/error handling/config/docs/tests. | Regression tests. | `6cb2be3` |
 | 11 | Provider-neutral real road-routing option. | Configurable `RoutingProvider` selection with deterministic mock default and OSRM single-route adapter; normalized road geometry/distance/duration. | Deterministic mocked/local-server provider tests; no live OSRM dependency. Environmental data remains fixed-cell demo data. | In progress |
 | 12 | Provider-neutral real environmental pollution data. | `EnvironmentalDataProvider`, deterministic mock default, configurable Open-Meteo adapter, unit normalization, null preservation, provider failure isolation; no schema change. | Local HTTP-server normalization/failure tests and provider-selection tests. Open-Meteo supplies six pollutants, not a compatible CleanRoute AQI; coverage remains the three fixed cells. | Uncommitted |
+| 13 | Connect real routing geometry to environmental data. | Bounded deterministic route sampling, passage-time calculation, one batched coordinate/hourly Open-Meteo lookup, modeled distance-weighted exposure and additive coverage/provenance metadata. | Local HTTP/provider tests only. Historical/out-of-range data and missing samples are unavailable; Open-Meteo grid resolution is coarse and route-wide global accuracy is not claimed. | Uncommitted |
 
 ## Dependencies
 

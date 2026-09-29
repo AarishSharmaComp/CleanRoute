@@ -4,6 +4,7 @@ import com.cleanroute.observation.config.EnvironmentalProperties;
 import com.cleanroute.observation.domain.ObservationModels.GeographicCell;
 import com.cleanroute.observation.provider.OpenMeteoEnvironmentalProvider;
 import com.cleanroute.observation.provider.ProviderFailureException;
+import com.cleanroute.observation.provider.EnvironmentalCoordinateQuery;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.AfterEach;
@@ -12,6 +13,8 @@ import org.junit.jupiter.api.Test;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import java.util.List;
+import com.cleanroute.observation.domain.RoutingModels.Coordinate;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -77,6 +80,33 @@ class OpenMeteoEnvironmentalProviderTest {
                 {"current_units":{"pm10":"mg/m³","pm2_5":"μg/m³","carbon_monoxide":"μg/m³","nitrogen_dioxide":"μg/m³","sulphur_dioxide":"μg/m³","ozone":"μg/m³"},
                  "current":{"time":"2026-09-29T08:00:00Z","pm10":1,"pm2_5":1,"carbon_monoxide":1,"nitrogen_dioxide":1,"sulphur_dioxide":1,"ozone":1}}
                 """, cell())).isInstanceOf(ProviderFailureException.class);
+    }
+
+    @Test void batchesCoordinateQueriesAndSelectsHourlyPassageValue() throws Exception {
+        server = HttpServer.create(new InetSocketAddress(0), 0);
+        server.createContext("/", exchange -> {
+            byte[] bytes = """
+                    [{"hourly_units":{"time":"iso8601","pm10":"μg/m³","pm2_5":"μg/m³","carbon_monoxide":"μg/m³","nitrogen_dioxide":"μg/m³","sulphur_dioxide":"μg/m³","ozone":"μg/m³"},
+                      "hourly":{"time":["2026-09-29T15:00","2026-09-29T16:00"],"pm10":[10,20],"pm2_5":[5,10],"carbon_monoxide":[100,200],"nitrogen_dioxide":[1,2],"sulphur_dioxide":[1,2],"ozone":[30,40]}},
+                     {"hourly_units":{"time":"iso8601","pm10":"μg/m³","pm2_5":"μg/m³","carbon_monoxide":"μg/m³","nitrogen_dioxide":"μg/m³","sulphur_dioxide":"μg/m³","ozone":"μg/m³"},
+                      "hourly":{"time":["2026-09-29T15:00","2026-09-29T16:00"],"pm10":[30,40],"pm2_5":[15,20],"carbon_monoxide":[300,400],"nitrogen_dioxide":[3,4],"sulphur_dioxide":[3,4],"ozone":[50,60]}}]
+                    """.getBytes(StandardCharsets.UTF_8);
+            String request = exchange.getRequestURI().toString();
+            if (!request.contains("latitude=28.6,28.7") || !request.contains("start_hour=")) throw new AssertionError(request);
+            exchange.sendResponseHeaders(200, bytes.length); exchange.getResponseBody().write(bytes); exchange.close();
+        });
+        server.start();
+        var provider = new OpenMeteoEnvironmentalProvider(properties("http://localhost:" + server.getAddress().getPort()), new ObjectMapper());
+        var queries = List.of(new EnvironmentalCoordinateQuery(new Coordinate(28.6, 77.2), Instant.parse("2026-09-29T15:20:00Z")),
+                new EnvironmentalCoordinateQuery(new Coordinate(28.7, 77.3), Instant.parse("2026-09-29T15:40:00Z")));
+
+        var results = provider.observationsAt(queries);
+
+        assertThat(results).hasSize(2);
+        assertThat(results.getFirst().observation().pm25()).isEqualTo(5.0);
+        assertThat(results.getFirst().observation().co()).isEqualTo(0.1);
+        assertThat(results.getFirst().observation().observedAt()).isEqualTo(Instant.parse("2026-09-29T15:00:00Z"));
+        assertThat(results.get(1).observation().pm25()).isEqualTo(20.0);
     }
 
     private OpenMeteoEnvironmentalProvider provider(String body) throws Exception {

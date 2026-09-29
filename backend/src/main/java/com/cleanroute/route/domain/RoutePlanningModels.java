@@ -14,8 +14,19 @@ public final class RoutePlanningModels {
                                     RoutePreference preference, Instant departureAt) {}
     public record RouteAlternative(String alternativeId, int rank, String provider, boolean generated,
             List<Coordinate> geometry, double distanceMeters, int durationSeconds,
-            double expectedPollutionExposure, int forecastQualityScore,
-            double preferenceScore, Map<String, Double> scoreComponents, List<String> reasons) {}
+            Double expectedPollutionExposure, Integer forecastQualityScore,
+            double preferenceScore, Map<String, Double> scoreComponents, List<String> reasons,
+            String environmentalCoverage, String observationSource, int sampledPointCount,
+            int availableSampleCount, int unavailableSampleCount) {
+        public RouteAlternative(String alternativeId, int rank, String provider, boolean generated,
+                List<Coordinate> geometry, double distanceMeters, int durationSeconds,
+                double expectedPollutionExposure, int forecastQualityScore, double preferenceScore,
+                Map<String, Double> scoreComponents, List<String> reasons) {
+            this(alternativeId, rank, provider, generated, geometry, distanceMeters, durationSeconds,
+                    expectedPollutionExposure, forecastQualityScore, preferenceScore, scoreComponents, reasons,
+                    "fixed-cell", "historical-forecast", 0, 0, 0);
+        }
+    }
     public record CalculationResult(UUID id, Instant departureAt, TravelMode mode, RoutePreference preference,
             List<RouteAlternative> alternatives, boolean generated, String limitation) {}
 }

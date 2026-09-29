@@ -21,7 +21,7 @@ public class RouteCalculationRepository {
     }
 
     public void saveHistory(UUID userId, String originName, String destinationName, String mode,
-                            String preference, double exposure, int durationSeconds, double distanceMeters) {
+                             String preference, Double exposure, int durationSeconds, double distanceMeters) {
         jdbc.update("INSERT INTO route_history(id,user_id,origin_name,destination_name,travel_mode,route_preference,pollution_score,estimated_travel_time_seconds,distance_meters) VALUES (?,?,?,?,?,?,?,?,?)",
                 UUID.randomUUID(), userId, originName, destinationName, mode, preference, exposure, durationSeconds, distanceMeters);
     }

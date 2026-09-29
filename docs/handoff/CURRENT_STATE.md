@@ -55,6 +55,7 @@ Public APIs: health, auth, AQI current/history, pollution score, forecast/curren
 ## Current known TODOs / objectively incomplete items
 
 - Open-Meteo is the available real environmental pollution provider. Real weather and traffic providers remain absent.
+- Real route mode can sample OSRM geometry and batch Open-Meteo hourly forecast lookups by coordinate; historical passage times or unavailable samples remain unavailable, without synthetic fallback.
 - Geographic lookup remains fixed-cell demo only.
 - Optional green-area/cycling/elevation metadata is not populated by the current route mock.
 - Photon search can be unavailable externally. Global geocoder results outside the three fixed Delhi demo cells have no supported environmental coverage.

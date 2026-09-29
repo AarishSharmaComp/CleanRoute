@@ -56,9 +56,11 @@ public class NotificationService {
 
     public void checkCleanerAlternative(UUID userId, CalculationResult result) {
         if (!enabled(userId) || result == null || result.alternatives().isEmpty()) return;
-        double selectedExposure = result.alternatives().getFirst().expectedPollutionExposure();
-        double cleanestExposure = result.alternatives().stream()
-                .mapToDouble(a -> a.expectedPollutionExposure()).min().orElse(selectedExposure);
+         if (result.alternatives().getFirst().expectedPollutionExposure() == null) return;
+         double selectedExposure = result.alternatives().getFirst().expectedPollutionExposure();
+         double cleanestExposure = result.alternatives().stream()
+                 .map(a -> a.expectedPollutionExposure()).filter(java.util.Objects::nonNull)
+                 .mapToDouble(Double::doubleValue).min().orElse(selectedExposure);
         if (selectedExposure - cleanestExposure < properties.getCleanerExposureImprovement()) return;
         provider.deliver(userId, new NotificationDraft("CLEANER_ALTERNATIVE",
                 "cleaner-alternative:" + result.id(), "A cleaner alternative was available",
