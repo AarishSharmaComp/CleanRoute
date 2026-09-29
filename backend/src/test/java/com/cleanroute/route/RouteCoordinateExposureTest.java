@@ -101,7 +101,6 @@ class RouteCoordinateExposureTest {
         var observations = mock(ObservationRepository.class);
         when(observations.cells()).thenReturn(List.of());
         var limits = new EnvironmentalProperties();
-        limits.setMaxRouteSamplePoints(2);
 
         var service = new RouteService(routing(), observations, mock(PollutionForecastService.class),
                 new PollutionEngine(new PollutionScoringProperties()), mock(RouteCalculationRepository.class),
@@ -137,11 +136,10 @@ class RouteCoordinateExposureTest {
         var observations = mock(ObservationRepository.class);
         when(observations.cells()).thenReturn(List.of(new GeographicCell("demo-delhi-central", 28.6139, 77.2090)));
         var limits = new EnvironmentalProperties();
-        limits.setMaxRouteSamplePoints(2);
-        limits.setRouteSampleIntervalMeters(1000);
+        limits.setRouteSampleIntervalMeters(3000);
         return new RouteService(routing, observations, forecasts, new PollutionEngine(new PollutionScoringProperties()),
                 mock(RouteCalculationRepository.class), new ObjectMapper().findAndRegisterModules(),
-                new RouteSuitabilityProperties(), environmental, limits);
+                new RouteSuitabilityProperties(), environmental, limits, new RoutingProperties());
     }
     private RoutingProvider routing() {
         RoutingProvider routing = mock(RoutingProvider.class);

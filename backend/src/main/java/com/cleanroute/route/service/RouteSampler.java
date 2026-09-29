@@ -11,8 +11,8 @@ public final class RouteSampler {
 
     public record Sample(Coordinate coordinate, double distanceFromStartMeters) {}
 
-    public static List<Sample> sample(List<Coordinate> geometry, int intervalMeters, int maxPoints) {
-        if (geometry == null || geometry.size() < 2 || intervalMeters < 1 || maxPoints < 2)
+    public static List<Sample> sample(List<Coordinate> geometry, int intervalMeters) {
+        if (geometry == null || geometry.size() < 2 || intervalMeters < 1)
             throw new IllegalArgumentException("Route geometry and sampling limits are invalid");
         List<Double> legLengths = new ArrayList<>();
         double total = 0;
@@ -23,10 +23,9 @@ public final class RouteSampler {
         if (!Double.isFinite(total) || total <= 0) return List.of(new Sample(geometry.getFirst(), 0),
                 new Sample(geometry.getLast(), 0));
         int desired = Math.max(2, (int) Math.ceil(total / intervalMeters) + 1);
-        int count = Math.min(maxPoints, desired);
-        List<Sample> samples = new ArrayList<>();
-        for (int i = 0; i < count; i++) {
-            double target = total * i / (count - 1);
+        List<Sample> samples = new ArrayList<>(desired);
+        for (int i = 0; i < desired; i++) {
+            double target = Math.min(total, (double) i * intervalMeters);
             samples.add(new Sample(atDistance(geometry, legLengths, target), target));
         }
         return List.copyOf(samples);

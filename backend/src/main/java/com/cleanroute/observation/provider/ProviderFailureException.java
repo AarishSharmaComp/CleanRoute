@@ -4,7 +4,7 @@ import java.time.Duration;
 
 /** Typed, provider-neutral failure information; exception messages must not contain credentials. */
 public class ProviderFailureException extends RuntimeException {
-    public enum Type { TIMEOUT, TEMPORARY_FAILURE, RATE_LIMITED }
+    public enum Type { TIMEOUT, TEMPORARY_FAILURE, RATE_LIMITED, UNSUPPORTED }
     private final Type type;
     private final Duration retryAfter;
 
@@ -19,4 +19,5 @@ public class ProviderFailureException extends RuntimeException {
     public static ProviderFailureException timeout() { return new ProviderFailureException(Type.TIMEOUT); }
     public static ProviderFailureException temporary() { return new ProviderFailureException(Type.TEMPORARY_FAILURE); }
     public static ProviderFailureException rateLimited(Duration retryAfter) { return new ProviderFailureException(Type.RATE_LIMITED, retryAfter); }
+    public static ProviderFailureException unsupported() { return new ProviderFailureException(Type.UNSUPPORTED); }
 }

@@ -30,8 +30,7 @@ app:
     open-meteo-url: ${OPEN_METEO_API_URL:https://air-quality-api.open-meteo.com/v1/air-quality}
     connect-timeout-ms: ${ENVIRONMENTAL_CONNECT_TIMEOUT_MS:2000}
     read-timeout-ms: ${ENVIRONMENTAL_READ_TIMEOUT_MS:5000}
-    max-route-sample-points: ${ENVIRONMENTAL_MAX_ROUTE_SAMPLE_POINTS:12}
-    route-sample-interval-meters: ${ENVIRONMENTAL_ROUTE_SAMPLE_INTERVAL_METERS:1000}
+    route-sample-interval-meters: ${ENVIRONMENTAL_ROUTE_SAMPLE_INTERVAL_METERS:250}
   pollution:
     scoring:
       aqi-index-max: 500
@@ -50,6 +49,7 @@ app:
     osrm-url: ${OSRM_API_URL:https://router.project-osrm.org}
     connect-timeout-ms: ${ROUTING_CONNECT_TIMEOUT_MS:2000}
     read-timeout-ms: ${ROUTING_READ_TIMEOUT_MS:5000}
+    max-geometry-points: ${ROUTING_MAX_GEOMETRY_POINTS:5000}
   routes:
     suitability:
       jogger-minimum-distance-meters: 2000

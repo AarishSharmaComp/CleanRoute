@@ -77,7 +77,7 @@ describe('CleanRoute dashboard', () => {
             geometry: [{ latitude: 28.614, longitude: 77.209 }, { latitude: 28.535, longitude: 77.391 }],
             distanceMeters: 14200, durationSeconds: 1920, expectedPollutionExposure: 31,
             forecastQualityScore: 70, preferenceScore: 82, scoreComponents: { pollutionCleanliness: 74 },
-            reasons: ['Lower modeled pollution exposure.'],
+             reasons: ['Lower modeled pollution exposure.'], environmentalCoverage: 'complete', observationSource: 'open-meteo-air-quality', sampledPointCount: 2, availableSampleCount: 2, unavailableSampleCount: 0,
           }],
         }) } as Response
       }
@@ -117,7 +117,9 @@ describe('CleanRoute dashboard', () => {
     expect(within(card).getByText('14.2 km')).toBeInTheDocument()
     expect(within(card).getByText('32 min')).toBeInTheDocument()
     expect(within(card).getByText('31.0')).toBeInTheDocument()
-    expect(within(card).getByText('Data unavailable')).toBeInTheDocument()
+    expect(within(card).getByText('Complete coverage')).toBeInTheDocument()
+    expect(within(card).getByText(/open meteo air quality/i)).toBeInTheDocument()
+    expect(within(card).getByText('Not provided')).toBeInTheDocument()
     expect(within(card).getByText('Lower modeled pollution exposure.')).toBeInTheDocument()
     expect(screen.getByText(/not Google Maps directions/i)).toBeInTheDocument()
   })

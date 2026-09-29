@@ -10,6 +10,7 @@ public class RoutingProperties {
     private String osrmUrl = "https://router.project-osrm.org";
     private int connectTimeoutMs = 2000;
     private int readTimeoutMs = 5000;
+    private int maxGeometryPoints = 5000;
 
     public String getProvider() { return provider; }
     public void setProvider(String provider) { this.provider = provider; }
@@ -19,4 +20,6 @@ public class RoutingProperties {
     public void setConnectTimeoutMs(int connectTimeoutMs) { this.connectTimeoutMs = connectTimeoutMs; }
     public int getReadTimeoutMs() { return readTimeoutMs; }
     public void setReadTimeoutMs(int readTimeoutMs) { this.readTimeoutMs = readTimeoutMs; }
+    public int getMaxGeometryPoints() { return maxGeometryPoints; }
+    public void setMaxGeometryPoints(int maxGeometryPoints) { this.maxGeometryPoints = maxGeometryPoints; }
 }

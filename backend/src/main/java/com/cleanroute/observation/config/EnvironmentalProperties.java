@@ -12,8 +12,7 @@ public class EnvironmentalProperties {
     @NotBlank private String openMeteoUrl = "https://air-quality-api.open-meteo.com/v1/air-quality";
     @Min(100) private int connectTimeoutMs = 2000;
     @Min(100) private int readTimeoutMs = 5000;
-    @Min(2) private int maxRouteSamplePoints = 12;
-    @Min(1) private int routeSampleIntervalMeters = 1000;
+    @Min(1) private int routeSampleIntervalMeters = 250;
 
     public String getProvider() { return provider; }
     public void setProvider(String provider) { this.provider = provider; }
@@ -23,8 +22,6 @@ public class EnvironmentalProperties {
     public void setConnectTimeoutMs(int connectTimeoutMs) { this.connectTimeoutMs = connectTimeoutMs; }
     public int getReadTimeoutMs() { return readTimeoutMs; }
     public void setReadTimeoutMs(int readTimeoutMs) { this.readTimeoutMs = readTimeoutMs; }
-    public int getMaxRouteSamplePoints() { return maxRouteSamplePoints; }
-    public void setMaxRouteSamplePoints(int maxRouteSamplePoints) { this.maxRouteSamplePoints = maxRouteSamplePoints; }
     public int getRouteSampleIntervalMeters() { return routeSampleIntervalMeters; }
     public void setRouteSampleIntervalMeters(int routeSampleIntervalMeters) { this.routeSampleIntervalMeters = routeSampleIntervalMeters; }
 }

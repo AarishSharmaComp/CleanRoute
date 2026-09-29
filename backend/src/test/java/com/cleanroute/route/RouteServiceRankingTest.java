@@ -84,7 +84,10 @@ class RouteServiceRankingTest {
         assertThat(cleanest.alternatives().getFirst().alternativeId()).isEqualTo("clean");
         assertThat(balanced.alternatives().getFirst().alternativeId()).isEqualTo("balanced");
         assertThat(cleanest.alternatives().getFirst().expectedPollutionExposure()).isEqualTo(10.0);
+        assertThat(cleanest.alternatives().getFirst().selectionReason().headline()).isEqualTo("Lowest modeled pollution exposure");
+        assertThat(cleanest.alternatives().getFirst().selectionReason().comparison().availableRoutes()).isEqualTo(3);
         assertThat(balanced.alternatives().getFirst().scoreComponents()).containsKeys("durationEfficiency", "pollutionCleanliness");
+        assertThat(balanced.alternatives().getFirst().selectionReason().factors()).anyMatch(factor -> factor.contains("equal-weight"));
         assertThat(fastest.alternatives().getFirst().reasons()).isNotEmpty();
         assertThat(jogger.alternatives().getFirst().alternativeId()).isEqualTo("clean");
         assertThat(jogger.alternatives().getFirst().scoreComponents()).containsKey("distanceSuitability");
@@ -92,6 +95,29 @@ class RouteServiceRankingTest {
         assertThat(cyclist.alternatives().getFirst().alternativeId()).isEqualTo("clean");
         assertThat(cyclist.alternatives().getFirst().reasons()).anyMatch(reason -> reason.contains("Cycling-compatibility metadata is unavailable"));
         verify(storage, times(5)).save(any(), any(), anyDouble(), anyDouble(), anyDouble(), anyDouble(), anyString(), anyString(), anyString());
+    }
+
+    @Test void cleanestDoesNotClaimComparisonWhenOnlyOneRouteOrNoExposureIsAvailable() {
+        ObservationRepository observations = mock(ObservationRepository.class);
+        RoutingProvider routing = mock(RoutingProvider.class);
+        PollutionForecastService forecasts = mock(PollutionForecastService.class);
+        RouteCalculationRepository storage = mock(RouteCalculationRepository.class);
+        Coordinate origin = new Coordinate(28.6139, 77.2090), destination = new Coordinate(28.6200, 77.2150);
+        when(observations.cells()).thenReturn(List.of(new GeographicCell("cell", 28.6139, 77.2090)));
+        when(routing.alternatives(any(RoutingRequest.class))).thenReturn(List.of(
+                new RoutePath(List.of(origin, destination), 1000, 600, "osrm", false, "only-route")));
+        when(forecasts.forecast(anyString(), any(Instant.class))).thenReturn(new PollutionForecast("cell", Instant.now(), Instant.now(),
+                null, null, null, null, null, null, null, 0, "UNAVAILABLE", 0, "test", "test", false));
+        var service = new RouteService(routing, observations, forecasts,
+                new PollutionEngine(new PollutionScoringProperties()), storage, new ObjectMapper().findAndRegisterModules());
+
+        var result = service.calculate(new CalculationRequest(origin, destination, TravelMode.CAR, RoutePreference.CLEANEST, null), UUID.randomUUID());
+
+        assertThat(result.alternatives()).hasSize(1);
+        assertThat(result.alternatives().getFirst().expectedPollutionExposure()).isNull();
+        assertThat(result.alternatives().getFirst().selectionReason().summary())
+                .contains("Only one routing candidate was available")
+                .contains("could not be established");
     }
 
     @Test void joggerRankingUsesAvailableGreenAreaCoverageAndExplainsItsUse() {

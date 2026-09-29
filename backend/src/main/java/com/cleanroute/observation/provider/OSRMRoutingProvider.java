@@ -53,7 +53,7 @@ public class OSRMRoutingProvider implements RoutingProvider {
         try {
             URI uri = URI.create(trimTrailingSlash(base) + "/route/v1/" + profile + "/"
                     + coordinate(origin) + ";" + coordinate(destination)
-                    + "?overview=full&geometries=geojson&alternatives=false&steps=false");
+                    + "?overview=full&geometries=geojson&alternatives=true&steps=false");
             HttpRequest httpRequest = HttpRequest.newBuilder(uri)
                     .header("Accept", "application/json")
                     .timeout(Duration.ofMillis(timeout(properties.getReadTimeoutMs())))
@@ -62,7 +62,7 @@ public class OSRMRoutingProvider implements RoutingProvider {
             if (response.statusCode() == 429) throw ProviderFailureException.rateLimited(Duration.ofSeconds(60));
             if (response.statusCode() < 200 || response.statusCode() >= 300)
                 throw ProviderFailureException.temporary();
-            return normalize(response.body(), request);
+             return normalizeAlternatives(response.body(), request).getFirst();
         } catch (ProviderFailureException failure) {
             throw failure;
         } catch (HttpTimeoutException timeout) {
@@ -76,30 +76,102 @@ public class OSRMRoutingProvider implements RoutingProvider {
     }
 
     public RoutePath normalize(String body, RoutingRequest request) {
+        return normalizeAlternatives(body, request).getFirst();
+    }
+
+    @Override
+    public List<RoutePath> alternatives(RoutingRequest request) {
+        if (request == null || request.origin() == null || request.destination() == null)
+            throw ProviderFailureException.temporary();
+        if (!validCoordinate(request.origin().latitude(), request.origin().longitude())
+                || !validCoordinate(request.destination().latitude(), request.destination().longitude()))
+            throw ProviderFailureException.temporary();
+        String base = properties.getOsrmUrl();
+        if (base == null || base.isBlank()) throw ProviderFailureException.temporary();
+        try {
+            String url = trimTrailingSlash(base) + "/route/v1/" + profile(request.mode()) + "/"
+                    + coordinate(request.origin()) + ";" + coordinate(request.destination())
+                    + "?overview=full&geometries=geojson&alternatives=true&steps=false";
+            HttpRequest httpRequest = HttpRequest.newBuilder(URI.create(url)).header("Accept", "application/json")
+                    .timeout(Duration.ofMillis(timeout(properties.getReadTimeoutMs()))).GET().build();
+            HttpResponse<String> response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() == 429) throw ProviderFailureException.rateLimited(Duration.ofSeconds(60));
+            if (response.statusCode() < 200 || response.statusCode() >= 300) throw ProviderFailureException.temporary();
+            List<RoutePath> paths = normalizeAlternatives(response.body(), request);
+            if (request.mode() != TravelMode.CAR && equivalentToDriving(request, paths))
+                throw ProviderFailureException.unsupported();
+            return paths;
+        } catch (ProviderFailureException failure) { throw failure;
+        } catch (HttpTimeoutException timeout) { throw ProviderFailureException.timeout();
+        } catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); throw ProviderFailureException.temporary();
+        } catch (Exception failure) { throw ProviderFailureException.temporary(); }
+    }
+
+    private boolean equivalentToDriving(RoutingRequest request, List<RoutePath> paths) {
+        RoutingRequest drivingRequest = new RoutingRequest(request.origin(), request.destination(), TravelMode.CAR);
+        try {
+            List<RoutePath> driving = fetchAlternatives(drivingRequest);
+            return sameRoutes(paths, driving);
+        } catch (ProviderFailureException failure) {
+            if (failure.getType() == ProviderFailureException.Type.UNSUPPORTED) return true;
+            return false;
+        }
+    }
+
+    private List<RoutePath> fetchAlternatives(RoutingRequest request) {
+        try {
+            String url = trimTrailingSlash(properties.getOsrmUrl()) + "/route/v1/" + profile(request.mode()) + "/"
+                    + coordinate(request.origin()) + ";" + coordinate(request.destination())
+                    + "?overview=full&geometries=geojson&alternatives=true&steps=false";
+            HttpRequest httpRequest = HttpRequest.newBuilder(URI.create(url)).header("Accept", "application/json")
+                    .timeout(Duration.ofMillis(timeout(properties.getReadTimeoutMs()))).GET().build();
+            HttpResponse<String> response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() < 200 || response.statusCode() >= 300) throw ProviderFailureException.unsupported();
+            return normalizeAlternatives(response.body(), request);
+        } catch (ProviderFailureException failure) { throw failure;
+        } catch (Exception failure) { throw ProviderFailureException.temporary(); }
+    }
+
+    private static boolean sameRoutes(List<RoutePath> first, List<RoutePath> second) {
+        if (first.size() != second.size()) return false;
+        for (int i = 0; i < first.size(); i++) {
+            RoutePath a = first.get(i), b = second.get(i);
+            if (Math.abs(a.distanceMeters() - b.distanceMeters()) > 0.1
+                    || Math.abs(a.estimatedDurationSeconds() - b.estimatedDurationSeconds()) > 1
+                    || !a.geometry().equals(b.geometry())) return false;
+        }
+        return true;
+    }
+
+    public List<RoutePath> normalizeAlternatives(String body, RoutingRequest request) {
         try {
             JsonNode root = mapper.readTree(body);
             if (root == null || !"Ok".equals(root.path("code").asText())
                     || !root.path("routes").isArray() || root.path("routes").size() < 1)
                 throw ProviderFailureException.temporary();
-            JsonNode route = root.path("routes").get(0);
-            double distance = route.path("distance").asDouble(Double.NaN);
-            double duration = route.path("duration").asDouble(Double.NaN);
-            JsonNode coordinates = route.path("geometry").path("coordinates");
-            if (!Double.isFinite(distance) || distance <= 0 || !Double.isFinite(duration)
-                    || duration < 1 || duration > Integer.MAX_VALUE || !coordinates.isArray()
-                    || coordinates.size() < 2 || coordinates.size() > 500)
-                throw ProviderFailureException.temporary();
-            List<Coordinate> geometry = new ArrayList<>();
-            for (JsonNode coordinate : coordinates) {
-                if (!coordinate.isArray() || coordinate.size() < 2)
+            List<RoutePath> paths = new ArrayList<>();
+            for (int index = 0; index < root.path("routes").size(); index++) {
+                JsonNode route = root.path("routes").get(index);
+                double distance = route.path("distance").asDouble(Double.NaN);
+                double duration = route.path("duration").asDouble(Double.NaN);
+                JsonNode coordinates = route.path("geometry").path("coordinates");
+                if (!Double.isFinite(distance) || distance <= 0 || !Double.isFinite(duration)
+                        || duration < 1 || duration > Integer.MAX_VALUE || !coordinates.isArray()
+                        || coordinates.size() < 2 || coordinates.size() > properties.getMaxGeometryPoints())
                     throw ProviderFailureException.temporary();
-                double longitude = coordinate.get(0).asDouble(Double.NaN);
-                double latitude = coordinate.get(1).asDouble(Double.NaN);
-                if (!validCoordinate(latitude, longitude)) throw ProviderFailureException.temporary();
-                geometry.add(new Coordinate(latitude, longitude));
+                List<Coordinate> geometry = new ArrayList<>();
+                for (JsonNode coordinate : coordinates) {
+                    if (!coordinate.isArray() || coordinate.size() < 2)
+                        throw ProviderFailureException.temporary();
+                    double longitude = coordinate.get(0).asDouble(Double.NaN);
+                    double latitude = coordinate.get(1).asDouble(Double.NaN);
+                    if (!validCoordinate(latitude, longitude)) throw ProviderFailureException.temporary();
+                    geometry.add(new Coordinate(latitude, longitude));
+                }
+                paths.add(new RoutePath(List.copyOf(geometry), distance, (int) Math.max(1, Math.ceil(duration)),
+                        providerId(), false, index == 0 ? "osrm-primary" : "osrm-" + (index + 1)));
             }
-            return new RoutePath(List.copyOf(geometry), distance, (int) Math.max(1, Math.ceil(duration)),
-                    providerId(), false, "osrm-primary");
+            return List.copyOf(paths);
         } catch (ProviderFailureException failure) {
             throw failure;
         } catch (Exception malformed) {
