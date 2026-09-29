@@ -14,6 +14,9 @@ flowchart TD
   API --> SVC[Domain services]
   SVC --> P[Provider interfaces]
   P --> MOCK[Deterministic mock providers]
+  P --> ROUTING[RoutingProvider]
+  ROUTING --> MOCKROUTE[MockRoutingProvider]
+  ROUTING --> OSRM[OSRMRoutingProvider]
   SVC --> REPO[JPA and JDBC repositories]
   REPO --> DB[(PostgreSQL)]
   MIG[Flyway migrations] --> DB
@@ -103,7 +106,9 @@ sequenceDiagram
   C-->>FE: response (backend order is authoritative)
 ```
 
-The route provider currently returns deterministic direct/north/south alternatives. Exposure is based on distance-weighted forecast samples; route preference and JOGGER/CYCLIST suitability are backend-calculated. The map draws returned geometry only. There is no street graph or actual navigation route. Route calculation requires authentication and stores user ownership from the principal.
+`RoutingProvider` is selected by `app.routing.provider` and defaults to `mock`. `MockRoutingProvider` returns deterministic direct/north/south alternatives for tests and local demos. `OSRMRoutingProvider` calls configurable OSRM with GeoJSON geometry and currently returns one normalized primary road route; it does not claim or fabricate independent alternatives. Exposure is based on distance-weighted forecast samples; route preference and JOGGER/CYCLIST suitability are backend-calculated. The map draws returned geometry only. Route calculation requires authentication and stores user ownership from the principal.
+
+OSRM distance, duration, and geometry are real provider results when the OSRM provider is enabled, but the environmental system remains limited to the three fixed Delhi demo cells. OSRM routing does not make pollution observations, forecasts, traffic, or exposure estimates real-world data.
 
 ### Ranking and suitability
 

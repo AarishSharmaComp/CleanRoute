@@ -41,6 +41,11 @@ app:
       traffic-weight: 0.15
       weather-weight: 0.10
       wind-reference-mps: 10
+  routing:
+    provider: ${ROUTING_PROVIDER:mock}
+    osrm-url: ${OSRM_API_URL:https://router.project-osrm.org}
+    connect-timeout-ms: ${ROUTING_CONNECT_TIMEOUT_MS:2000}
+    read-timeout-ms: ${ROUTING_READ_TIMEOUT_MS:5000}
   routes:
     suitability:
       jogger-minimum-distance-meters: 2000

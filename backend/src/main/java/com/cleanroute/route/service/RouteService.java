@@ -9,6 +9,7 @@ import com.cleanroute.observation.domain.RoutingModels.Coordinate;
 import com.cleanroute.observation.domain.RoutingModels.RoutePath;
 import com.cleanroute.observation.domain.RoutingModels.RoutingRequest;
 import com.cleanroute.observation.provider.RoutingProvider;
+import com.cleanroute.observation.provider.ProviderFailureException;
 import com.cleanroute.observation.repository.ObservationRepository;
 import com.cleanroute.pollution.domain.ForecastModels.PollutionForecast;
 import com.cleanroute.pollution.service.PollutionEngine;
@@ -38,7 +39,8 @@ import java.util.Locale;
 
 @Service
 public class RouteService {
-    private static final String LIMITATION = "Generated mock alternatives and nearest fixed demo-cell forecasts; exposure is a comparative baseline, not health guidance.";
+    private static final String MOCK_LIMITATION = "Generated mock alternatives and nearest fixed demo-cell forecasts; exposure is a comparative baseline, not health guidance.";
+    private static final String REAL_ROUTE_LIMITATION = "Road geometry and travel estimates come from the configured routing provider; environmental exposure remains a comparative baseline from nearest fixed demo-cell forecasts, not health guidance.";
     private final RoutingProvider routing;
     private final ObservationRepository observations;
     private final PollutionForecastService forecasts;
@@ -73,7 +75,12 @@ public class RouteService {
         if (!departure.isAfter(Instant.now())) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Departure time must be in the future");
         List<GeographicCell> cells = observations.cells();
         if (cells.isEmpty()) throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "No geographic cells are configured");
-        List<RoutePath> paths = routing.alternatives(new RoutingRequest(request.origin(), request.destination(), request.mode()));
+        List<RoutePath> paths;
+        try {
+            paths = routing.alternatives(new RoutingRequest(request.origin(), request.destination(), request.mode()));
+        } catch (ProviderFailureException failure) {
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "Routing provider is temporarily unavailable");
+        }
         if (paths == null || paths.isEmpty() || paths.size() > 10 || paths.stream().anyMatch(java.util.Objects::isNull))
             throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "Routing provider returned no usable alternatives");
         List<Candidate> candidates = new ArrayList<>();
@@ -90,8 +97,9 @@ public class RouteService {
                     c.path().geometry(), c.path().distanceMeters(), c.path().estimatedDurationSeconds(), c.exposure(),
                     c.quality(), round(r.score()), components, reasons(request.preference(), r, c)));
         }
+        boolean generated = paths.stream().anyMatch(RoutePath::generated);
         CalculationResult result = new CalculationResult(UUID.randomUUID(), departure, request.mode(), request.preference(),
-                List.copyOf(results), paths.stream().anyMatch(RoutePath::generated), LIMITATION);
+                List.copyOf(results), generated, generated ? MOCK_LIMITATION : REAL_ROUTE_LIMITATION);
         try {
             calculations.save(result.id(), userId, request.origin().latitude(), request.origin().longitude(),
                     request.destination().latitude(), request.destination().longitude(), request.mode().name(),

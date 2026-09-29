@@ -13,7 +13,8 @@ The current implementation plan defines Phases 1–10. Git history contains six 
 | 7 | Travel preference/suitability. | FASTEST/CLEANEST/BALANCED plus JOGGER/CYCLIST scoring, configuration, optional metadata; V5 preference check. | Config/ranking tests. Mock lacks green/cycling/elevation metadata. | `6cb2be3` |
 | 8 | Dashboard and frontend visualization journey. | React account/dashboard, AQI/forecast, Leaflet map, route planner/cards, status states; existing APIs. | Frontend tests/build. Place search is now proxied via backend geocoding API; Photon remains public/best effort. | `6cb2be3` + `7ab830b` |
 | 9 | Dashboard persistence and notifications. | User-scoped aggregation, route history, in-app notification rules/list/read/dedup; V6. | Owner, notification and API tests. No email/push delivery. | `6cb2be3` |
-| 10 | Hardening. | DB-aware health, CORS, validation/error handling/config/docs/tests. | Regression tests. No Phase 11 is defined. | `6cb2be3` |
+| 10 | Hardening. | DB-aware health, CORS, validation/error handling/config/docs/tests. | Regression tests. | `6cb2be3` |
+| 11 | Provider-neutral real road-routing option. | Configurable `RoutingProvider` selection with deterministic mock default and OSRM single-route adapter; normalized road geometry/distance/duration. | Deterministic mocked/local-server provider tests; no live OSRM dependency. Environmental data remains fixed-cell demo data. | In progress |
 
 ## Dependencies
 

@@ -44,7 +44,7 @@ The journey planner provides:
 - Backend response alternatives displayed without frontend re-ranking; actual response geometry is used by Leaflet.
 - Route cards show fields supplied by backend, including distance, duration, exposure, preference score/components, reasons, provider/generated provenance. Absent values are unavailable. Per-route AQI is not inferred.
 
-The UI is map-planning inspired but is not Google Maps and does not claim real road-network directions. `MockRoutingProvider` supplies deterministic demo geometry.
+The UI is map-planning inspired and renders the normalized geometry returned by the backend. With the default `MockRoutingProvider`, geometry is deterministic demo geometry; with opt-in OSRM routing, the map can render one real road route. The frontend does not assume that one OSRM route represents multiple independent alternatives.
 
 ## Location search and map
 

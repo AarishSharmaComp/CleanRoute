@@ -5,10 +5,12 @@ import com.cleanroute.observation.domain.RoutingModels.RoutePath;
 import com.cleanroute.observation.domain.RoutingModels.RoutingRequest;
 import com.cleanroute.domain.TravelMode;
 import org.springframework.stereotype.Component;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import java.util.List;
 
 /** Deterministic straight-line demo path; it does not choose or rank routes. */
 @Component
+@ConditionalOnProperty(name = "app.routing.provider", havingValue = "mock", matchIfMissing = true)
 public class MockRoutingProvider implements RoutingProvider {
     @Override public String providerId() { return "mock-demo-routing"; }
     @Override public RoutePath route(RoutingRequest request) {

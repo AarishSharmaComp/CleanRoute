@@ -25,6 +25,10 @@ services:
       JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env}
       GEOCODING_PROVIDER: ${GEOCODING_PROVIDER:-photon}
       PHOTON_API_URL: ${PHOTON_API_URL:-https://photon.komoot.io/api/}
+      ROUTING_PROVIDER: ${ROUTING_PROVIDER:-mock}
+      OSRM_API_URL: ${OSRM_API_URL:-https://router.project-osrm.org}
+      ROUTING_CONNECT_TIMEOUT_MS: ${ROUTING_CONNECT_TIMEOUT_MS:-2000}
+      ROUTING_READ_TIMEOUT_MS: ${ROUTING_READ_TIMEOUT_MS:-5000}
     ports:
       - "${BACKEND_PORT:-8080}:8080"
     depends_on:

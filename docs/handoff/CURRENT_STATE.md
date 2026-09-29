@@ -12,7 +12,7 @@ Snapshot inspected for this handoff. Recheck Git and source before relying on st
 
 ## Current implementation
 
-CleanRoute is a Java 21 / Spring Boot 3.5.6 modular monolith with PostgreSQL/Flyway and a React 19/TypeScript/Vite frontend. Phases 1–10 are present in source. JWT authentication, owner-scoped accounts/data, generated environmental observations, historical forecasts, pollution scores, deterministic route alternatives/ranking, dashboard, and in-app notifications exist.
+CleanRoute is a Java 21 / Spring Boot 3.5.6 modular monolith with PostgreSQL/Flyway and a React 19/TypeScript/Vite frontend. Phases 1–10 are present, and Phase 11 routing work is in progress. JWT authentication, owner-scoped accounts/data, generated environmental observations, historical forecasts, pollution scores, provider-neutral route alternatives/ranking, dashboard, and in-app notifications exist.
 
 ## What works (repository evidence and last local verification)
 
@@ -27,14 +27,14 @@ CleanRoute is a Java 21 / Spring Boot 3.5.6 modular monolith with PostgreSQL/Fly
 
 ## Limitations
 
-- AQI/weather/traffic observations and route alternatives are deterministic/generated demo data, not real readings or road directions.
+- AQI/weather/traffic observations and mock route alternatives are deterministic/generated demo data, not real readings or road directions. Optional OSRM routing can provide real road geometry, distance, and duration, but not real environmental data.
 - Forecast is a weighted historical baseline, not ML or external forecast.
 - Exactly three fixed Delhi demo cells; no arbitrary geographic lookup or PostGIS.
 - No route-specific AQI response. Default route mock provides no green/cycling/elevation metadata.
 - Photon-backed place search is public-internet-dependent and best effort; the browser calls the backend API.
 - Global search results do not imply environmental data coverage; only locations near three fixed Delhi demo cells are marked supported.
 - Compose frontend is Vite dev server. No production serving/release pipeline is documented as implemented.
-- No Phase 11 is present in current implementation plan.
+- OSRM routing currently supplies only one primary route; multiple real alternatives are not requested or fabricated.
 
 ## Current frontend state
 

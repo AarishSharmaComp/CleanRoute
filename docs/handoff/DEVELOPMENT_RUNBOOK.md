@@ -57,6 +57,8 @@ npm run dev
 
 Open `http://localhost:5173`. Set `VITE_API_BASE_URL` to the browser-reachable backend origin if it is not the default. Place search uses backend geocoding configuration; set `GEOCODING_PROVIDER=mock` to avoid external Photon access.
 
+Routing defaults to deterministic `ROUTING_PROVIDER=mock`. To opt into one OSRM road route, configure `ROUTING_PROVIDER=osrm` and optionally `OSRM_API_URL`, `ROUTING_CONNECT_TIMEOUT_MS`, and `ROUTING_READ_TIMEOUT_MS`. OSRM requires network access. It returns a single primary route; no alternate road routes are fabricated. Environmental exposure remains based on the three fixed Delhi demo cells and generated/historical demo forecasts.
+
 ## Start entire application with Docker Compose
 
 From root, after `.env` configuration:

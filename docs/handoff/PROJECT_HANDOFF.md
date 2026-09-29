@@ -37,18 +37,18 @@ The project is a **local-development / deterministic-demo application**, not a p
 
 - Mock AQI, weather, and traffic providers generate values from timestamps and fixed cell IDs. Mock pollutant values may be null. Their values are labeled generated and must not be described as real observations.
 - The historical forecast provider is a time-slot/day-of-week historical average with exponential recency weighting and fallbacks for sparse history. It is not a real weather/air-quality forecast or ML model.
-- The `MockRoutingProvider` returns a direct path and two deterministic detours for alternatives. Geometry, distance, duration, and provider are demo outputs; these are not road-network navigation directions.
+- The `MockRoutingProvider` returns a direct path and two deterministic detours for alternatives. Geometry, distance, duration, and provider are demo outputs; these are not road-network navigation directions. `OSRMRoutingProvider` is an opt-in provider that returns one normalized OSRM road route without fabricating alternatives.
 - Route exposure is an estimated comparative baseline assembled from mock forecast data and nearest fixed demo-cell selection. It is not validated health guidance.
 - The backend Photon adapter calls the public service over the internet. Search results are external geocoder data; route geometry still comes from the mock routing provider.
 
 ### Incomplete, unavailable, or deferred
 
-- There are no real third-party AQI, weather, traffic, or road-routing provider integrations. API-key properties/placeholders do not mean those integrations exist.
+- There are no real third-party AQI, weather, or traffic integrations. OSRM is an optional road-routing integration; API-key properties/placeholders do not mean those environmental integrations exist.
 - Geographic lookup is limited to three fixed deterministic demo cells. There is no arbitrary coordinate-to-area lookup service or PostGIS.
 - Mock route paths do not provide green-area, cycling compatibility, or elevation metadata. JOGGER/CYCLIST scoring reports unavailable metadata and excludes it when absent. The RoutePath model can carry these optional values for a future provider.
 - Per-route AQI is not a response field. Route cards must not assign the current cell AQI to a route.
 - Photon is a public, best-effort geocoder. It needs internet access and may be rate-limited or unavailable. No backend geocoding endpoint exists.
-- No advanced forecasting, ML, notifications delivery outside the in-app database provider, route optimization beyond the documented mock alternative ranking, email/push, or Phase 11+ implementation is present.
+- No advanced forecasting, ML, notifications delivery outside the in-app database provider, OSRM multi-route optimization, email/push, or later-phase implementation is present.
 - Auth has validation and JWT expiry but no refresh-token or revocation endpoint. Rate limiting is not implemented.
 
 ## Current Git and working-tree facts
@@ -73,7 +73,7 @@ The implementation plan defines Phases 1–10. It defines no Phase 11. The exact
 | 5 — Baseline forecasting | Replaceable `ForecastProvider`; historical weighted averages, quality, prediction persistence, observed/predicted distinction and history retrieval. | `HistoricalAverageForecastProvider`, `PollutionForecastService`; `/api/pollution/forecast` and `/history`; pollution_forecast added in V4. | Forecast provider/API tests; deterministic historical baseline, not ML/real-time external forecast. | `eb674be` |
 | 6 — Routing and preference ranking | Provider-neutral route alternatives; estimated passage-time sampling and pollution exposure; FASTEST/CLEANEST/BALANCED rankings; owner-scoped calculation persistence/read. | `RoutingProvider`, `MockRoutingProvider`, `RouteService`, `RoutePlanningController`; `/api/routes/calculate`, `/api/routes/{id}`; route_calculation in V4 and route_history writes. | API/ranking tests. Three generated alternatives; fixed-cell forecasts, no street graph. | `eb674be` |
 | 7 — Jogger/cyclist suitability | JOGGER/CYCLIST suitability with configurable exposure/traffic and jogger distance; optional green, cycling, elevation metadata. | `RouteService`, `RouteSuitabilityProperties`; adds preference constraint through V5. | Suitability/ranking/config tests. Mock does not provide optional green/cycling/elevation values. CYCLIST component weights are fixed in code; JOGGER pollution/traffic/distance weights configurable. | `6cb2be3` |
-| 8 — Dashboard/visualizations | Responsive React dashboard, AQI/forecast panels, Leaflet map, route alternatives, account entry points, loading/error/empty states. | `frontend/src/App.tsx`, styles, Vite/Leaflet; frontend calls existing APIs. Current dirty work adds place search; it is not yet committed. | Frontend integration tests and build. Public Photon search is external/best-effort; no road-network route provider. | `6cb2be3` |
+| 8 — Dashboard/visualizations | Responsive React dashboard, AQI/forecast panels, Leaflet map, route alternatives, account entry points, loading/error/empty states. | `frontend/src/App.tsx`, styles, Vite/Leaflet; frontend calls existing APIs. | Frontend integration tests and build. Public Photon search is external/best-effort; routing providers are documented under Phase 11. | `6cb2be3` |
 | 9 — Saved data/dashboard/notifications | Owner-scoped dashboard aggregation and route history; deduplicated in-app alert creation/read state. | `DashboardService`, `NotificationService`, providers/repository; `/api/dashboard`, `/api/notifications`; V6. | Notification/API tests. Alerts are evaluated during dashboard reads and route calculation, stored in PostgreSQL; no email/push. | `6cb2be3` |
 | 10 — Hardening/handoff | DB-aware health, CORS, validation/error handling/logging/configuration and docs/tests. | `HealthController`, `SecurityConfig`, `ApiExceptionHandler`, docs; no migration. | Health, API, and prior regression suites. Project docs exist; this package adds detailed handoff docs. | `6cb2be3` |
 
@@ -344,7 +344,7 @@ The complete contract, validation, examples and ownership behavior are in `API_R
 3. Read `/api/dashboard`, `/api/users/me`, or `/api/places` for current user's data.
 4. Read public `GET /api/aqi/current?cell=demo-delhi-central` or bounded `/api/aqi/history` for environmental observations.
 5. Request public `/api/pollution/forecast` with a future 15-minute-aligned `from` timestamp; read persisted forecast history if needed.
-6. Use `POST /api/routes/calculate` with authenticated selected coordinates/mode/preference; result includes mock alternatives and is saved under that user.
+6. Use `POST /api/routes/calculate` with authenticated selected coordinates/mode/preference; result includes configured-provider routes and is saved under that user. Mock returns three deterministic demo alternatives; OSRM returns one real road route.
 7. Read `/api/routes/history` or `/api/routes/{id}` with the same token. A different user receives not-found for another owner's calculation.
 8. Read `/api/notifications?limit=50` and mark one owned record with `POST /api/notifications/{id}/read`.
 9. Check readiness through `GET /api/health`.
@@ -388,7 +388,7 @@ These results are snapshots, not a guarantee after another agent changes files. 
 
 - Real AQI/weather/traffic/routing integrations and secrets for them.
 - Advanced forecasting / ML, notifications beyond in-app, external notification delivery, route optimization beyond present rank modes, and any work not assigned to Phases 1–10.
-- PostGIS, infrastructure services and a Phase 11+. Do not infer these from optional schema fields or future-facing provider abstractions.
+- PostGIS, infrastructure services and phases after Phase 11. Do not infer these from optional schema fields or future-facing provider abstractions.
 
 ## Related handoff references
 
