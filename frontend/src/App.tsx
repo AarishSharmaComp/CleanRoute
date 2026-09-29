@@ -5,16 +5,27 @@ import L from 'leaflet'
 import { CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip as ChartTooltip, XAxis, YAxis } from 'recharts'
 import 'leaflet/dist/leaflet.css'
 import { LocationSearchField, type LocationInput } from './location/LocationSearchField'
-import { PhotonLocationSearchProvider } from './location/locationSearch'
+import { BackendLocationSearchProvider } from './location/locationSearch'
 import type { LocationSearchResult } from './location/locationSearch'
 
 const API = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080'
-const locationProvider = new PhotonLocationSearchProvider()
+const locationProvider = new BackendLocationSearchProvider()
 const cells = [
   { id: 'demo-delhi-central', label: 'Central Delhi', latitude: 28.6139, longitude: 77.2090 },
   { id: 'demo-delhi-south', label: 'South Delhi', latitude: 28.5355, longitude: 77.2100 },
   { id: 'demo-delhi-north', label: 'North Delhi', latitude: 28.7041, longitude: 77.1025 },
 ]
+
+function isInDemoCoverage(point: Point): boolean {
+  const radius = 35000
+  return cells.some(cell => {
+    const radians = Math.PI / 180
+    const dLat = (point.latitude - cell.latitude) * radians
+    const dLon = (point.longitude - cell.longitude) * radians
+    const a = Math.sin(dLat / 2) ** 2 + Math.cos(cell.latitude * radians) * Math.cos(point.latitude * radians) * Math.sin(dLon / 2) ** 2
+    return 6_371_000 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)) <= radius
+  })
+}
 
 type Point = { latitude: number; longitude: number }
 type Aqi = { cellId: string; observedAt: string; aqi: number | null; pm25: number | null; generated: boolean; stale?: boolean }
@@ -241,7 +252,7 @@ function App() {
   }
 
   function useSavedPlace(place: SavedPlace, target: 'origin' | 'destination') {
-    const result: LocationSearchResult = { name: place.name, displayName: place.address || place.name, context: place.address || '', latitude: place.latitude, longitude: place.longitude }
+    const result: LocationSearchResult = { name: place.name, displayName: place.address || place.name, context: place.address || '', latitude: place.latitude, longitude: place.longitude, supportedArea: isInDemoCoverage(place) }
     const value = { query: result.displayName, selected: result }
     if (target === 'origin') setOrigin(value); else setDestination(value)
   }
@@ -250,6 +261,7 @@ function App() {
   const activeRoute = displayedRoutes.find(route => route.alternativeId === selectedRouteId) ?? displayedRoutes[0] ?? null
   const selectedOrigin = origin.selected
   const selectedDestination = destination.selected
+  const environmentalCoverageAvailable = Boolean(selectedOrigin?.supportedArea && selectedDestination?.supportedArea)
 
   return (
     <main className="app-shell">
@@ -291,6 +303,7 @@ function App() {
               <button className="swap-button" type="button" aria-label="Swap origin and destination" onClick={() => { setOrigin(destination); setDestination(origin) }}>⇅</button>
               <LocationSearchField label="To" placeholder="Search destination" value={destination} provider={locationProvider} onChange={setDestination}/>
             </div>
+            {(selectedOrigin || selectedDestination) && !environmentalCoverageAvailable && <p className="provenance" role="status">Environmental coverage is available only near the three Delhi demo cells. Global place search works, but pollution exposure for this journey is unavailable.</p>}
             <fieldset className="choice-field"><legend>Travel mode</legend><div className="segmented-control" role="group" aria-label="Travel mode">
               {travelModes.map(item => <button key={item.value} type="button" className={mode === item.value ? 'segment active' : 'segment'} aria-pressed={mode === item.value} onClick={() => setMode(item.value)}><span>{item.icon}</span>{item.label}</button>)}
             </div></fieldset>
@@ -325,8 +338,8 @@ function App() {
               const geometry = validGeometry(route)
               if (!geometry.length) return null
               const selected = route.alternativeId === activeRoute?.alternativeId
-              return <Polyline key={route.alternativeId} positions={geometry.map(point => [point.latitude, point.longitude] as [number, number])}
-                pathOptions={{ color: selected ? '#207b50' : '#849b8a', weight: selected ? 7 : 4, opacity: selected ? .95 : .32 }}><Tooltip>{route.alternativeId} · modeled exposure {displayValue(route.expectedPollutionExposure, 1)}</Tooltip></Polyline>
+               return <Polyline key={route.alternativeId} positions={geometry.map(point => [point.latitude, point.longitude] as [number, number])}
+                 pathOptions={{ color: selected ? '#207b50' : '#849b8a', weight: selected ? 7 : 4, opacity: selected ? .95 : .32 }}><Tooltip>{environmentalCoverageAvailable ? `${route.alternativeId} · modeled exposure ${displayValue(route.expectedPollutionExposure, 1)}` : `${route.alternativeId} · environmental coverage unavailable`}</Tooltip></Polyline>
             })}
             <FitMap route={activeRoute} origin={selectedOrigin} destination={selectedDestination}/>
           </MapContainer>{displayedRoutes.length > 0 && !displayedRoutes.some(route => validGeometry(route).length) && <div className="map-fallback" role="status">Route geometry is unavailable. Route details are shown below.</div>}</div>
@@ -342,10 +355,10 @@ function App() {
           const geometryAvailable = validGeometry(route).length > 0
           return <article className={`route-card ${route.rank === 1 ? 'top-route' : ''} ${activeRoute?.alternativeId === route.alternativeId ? 'selected-route-card' : ''}`} key={route.alternativeId}>
             <div className="route-card-top"><span className="route-rank">{route.rank}</span><div><h3>{route.alternativeId.replaceAll('-', ' ')}</h3><span className="route-provider">{calculation?.preference} · {route.generated ? 'Generated demo route' : route.provider || 'Provider route'}</span></div><strong className="route-score">{displayValue(route.preferenceScore)}<small>preference score</small></strong></div>
-            <div className="route-stats"><span><b>{route.distanceMeters == null ? 'Data unavailable' : `${(route.distanceMeters / 1000).toFixed(1)} km`}</b> distance</span><span><b>{route.durationSeconds == null ? 'Data unavailable' : `${Math.round(route.durationSeconds / 60)} min`}</b> duration</span><span><b>{displayValue(route.expectedPollutionExposure, 1)}</b> modeled exposure</span></div>
-            <dl className="route-details"><div><dt>Route AQI</dt><dd>Data unavailable</dd></div><div><dt>Forecast quality</dt><dd>{route.forecastQualityScore == null ? 'Data unavailable' : `${route.forecastQualityScore}/100`}</dd></div><div><dt>Geometry</dt><dd>{geometryAvailable ? 'Available' : 'Data unavailable'}</dd></div></dl>
+             <div className="route-stats"><span><b>{route.distanceMeters == null ? 'Data unavailable' : `${(route.distanceMeters / 1000).toFixed(1)} km`}</b> distance</span><span><b>{route.durationSeconds == null ? 'Data unavailable' : `${Math.round(route.durationSeconds / 60)} min`}</b> duration</span><span><b>{environmentalCoverageAvailable ? displayValue(route.expectedPollutionExposure, 1) : 'Data unavailable'}</b> {environmentalCoverageAvailable ? 'modeled exposure' : 'environmental coverage'}</span></div>
+             <dl className="route-details"><div><dt>Route AQI</dt><dd>Data unavailable</dd></div><div><dt>Forecast quality</dt><dd>{environmentalCoverageAvailable && route.forecastQualityScore != null ? `${route.forecastQualityScore}/100` : 'Data unavailable'}</dd></div><div><dt>Geometry</dt><dd>{geometryAvailable ? 'Available' : 'Data unavailable'}</dd></div></dl>
             {components.length > 0 && <div className="score-components"><strong>Score components</strong><ul>{components.map(([name, value]) => <li key={name}><span>{name.replaceAll('_', ' ')}</span><b>{displayValue(value, 1)}</b></li>)}</ul></div>}
-            {route.reasons?.length ? <div className="route-explanation"><strong>Why this route?</strong><p>{route.reasons.join(' ')}</p></div> : <p className="route-explanation">Data unavailable: no route explanation was returned.</p>}
+             {route.reasons?.length && environmentalCoverageAvailable ? <div className="route-explanation"><strong>Why this route?</strong><p>{route.reasons.join(' ')}</p></div> : <p className="route-explanation">{environmentalCoverageAvailable ? 'Data unavailable: no route explanation was returned.' : 'Environmental coverage is unavailable outside the supported Delhi demo area.'}</p>}
             <div className="route-card-actions"><button className="button outline" onClick={() => setSelectedRouteId(route.alternativeId)} aria-pressed={activeRoute?.alternativeId === route.alternativeId}>Show on map</button><button className="button outline" onClick={() => void saveRoute(route)} disabled={!token || busy || !selectedOrigin || !selectedDestination}>Save route</button></div>
           </article>
         })}</div> : <div className="empty-panel"><strong>Plan a cleaner journey</strong><p>Enter your starting point and destination to compare routes using travel time and pollution exposure.</p>{calculation && !displayedRoutes.length && <span>No route alternatives were returned. Try different locations or check again later.</span>}</div>}

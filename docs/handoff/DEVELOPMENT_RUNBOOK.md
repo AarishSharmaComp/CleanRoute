@@ -55,7 +55,7 @@ npm install
 npm run dev
 ```
 
-Open `http://localhost:5173`. Set `VITE_API_BASE_URL` to the browser-reachable backend origin if it is not the default. Current place search also needs public Photon access; `VITE_PHOTON_API_URL` can override its endpoint.
+Open `http://localhost:5173`. Set `VITE_API_BASE_URL` to the browser-reachable backend origin if it is not the default. Place search uses backend geocoding configuration; set `GEOCODING_PROVIDER=mock` to avoid external Photon access.
 
 ## Start entire application with Docker Compose
 

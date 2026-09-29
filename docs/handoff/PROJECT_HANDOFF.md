@@ -1,12 +1,12 @@
 # CleanRoute Project Handoff
 
-This is the master orientation document for an AI or developer taking over this repository. It describes the code currently present, including the dirty working-tree frontend changes noted below. Read `CURRENT_STATE.md` for the shortest current snapshot, then use the more focused references in this directory.
+This is the master orientation document for an AI or developer taking over this repository. Recheck Git state before relying on stateful details. Read `CURRENT_STATE.md` for the shortest snapshot, then use the more focused references in this directory.
 
 ## Project identity
 
 **CleanRoute** is a pollution-aware journey-planning demo. It compares route alternatives using travel-time estimates and pollution exposure estimates derived from stored environmental observations and baseline forecasts. It exists to demonstrate an end-to-end flow from environmental data collection and scoring through route alternatives, user accounts, a dashboard, and owner-scoped saved data.
 
-The project is a **local-development / deterministic-demo application**, not a production air-quality or navigation service. The backend and frontend are implemented through Phase 10. Core UI and API paths exist, but external air-quality, weather, traffic, and routing integrations do not. Forecasts, mock observations, and route alternatives are generated demo data. The working tree also contains uncommitted journey-planner UX work that adds Photon-based place suggestions.
+The project is a **local-development / deterministic-demo application**, not a production air-quality or navigation service. External air-quality, weather, traffic, and routing integrations do not exist. Forecasts, mock observations, and route alternatives are generated demo data. Place search is proxied through the backend geocoding provider abstraction.
 
 ### Technology
 
@@ -39,7 +39,7 @@ The project is a **local-development / deterministic-demo application**, not a p
 - The historical forecast provider is a time-slot/day-of-week historical average with exponential recency weighting and fallbacks for sparse history. It is not a real weather/air-quality forecast or ML model.
 - The `MockRoutingProvider` returns a direct path and two deterministic detours for alternatives. Geometry, distance, duration, and provider are demo outputs; these are not road-network navigation directions.
 - Route exposure is an estimated comparative baseline assembled from mock forecast data and nearest fixed demo-cell selection. It is not validated health guidance.
-- The current place-search adapter calls the public Photon service over the internet. Search results are external geocoder data; the route geometry that follows still comes from the mock routing provider.
+- The backend Photon adapter calls the public service over the internet. Search results are external geocoder data; route geometry still comes from the mock routing provider.
 
 ### Incomplete, unavailable, or deferred
 
@@ -57,7 +57,7 @@ The project is a **local-development / deterministic-demo application**, not a p
 - `HEAD`: `6cb2be3e236f7cd14489e3187cb30dc9974d0dca` (`Implement Phases 7-10 route intelligence and dashboard`).
 - The local `origin/main` tracking ref was at the same commit when inspected. No remote fetch was performed during this handoff audit, so this is a statement about local refs, not a live GitHub check.
 - Phase 1–10 history is preserved in six commits; Phase 7–10 were grouped in one commit. See `PHASE_HISTORY.md`.
-- The working tree is **dirty**. Existing uncommitted files at handoff creation: `.env.example`, `README.md`, `docker-compose.yml`, `frontend/src/App.test.tsx`, `frontend/src/App.tsx`, `frontend/src/styles.css`, and untracked `frontend/src/location/` files. These are the in-progress journey planner/place-search changes from the current project work. The handoff writer must preserve them.
+- Git state changes over time; inspect `git status` before making changes. The current place-search frontend is committed.
 - This handoff package is also uncommitted documentation work. No commit or push was performed.
 
 ## Complete phase history
@@ -136,7 +136,7 @@ Controllers depend on services/repositories appropriate to each feature. Provide
 - `frontend/src/App.test.tsx`: Vitest + Testing Library tests for dashboard/API state, location selection/swap/request payload, and Photon response normalization.
 - `frontend/src/test-setup.ts`, `vitest.config.ts`, `vite.config.ts`, and `vite-env.d.ts`: test setup, DOM environment, build chunks, environment typings.
 
-The app calls the backend base URL from `VITE_API_BASE_URL` (default `http://localhost:8080`) with `fetch`; authenticated calls attach `Authorization: Bearer <token>`. The JWT token is held in `localStorage` under `cleanroute.token`. The current dirty journey planner stores the chosen coordinates from a location search result and does not expose coordinate inputs in the main planner. The backend still requires authentication to calculate/save/retrieve routes. Environmental panels remain accessible without signing in.
+The app calls the backend base URL from `VITE_API_BASE_URL` (default `http://localhost:8080`) with `fetch`; authenticated calls attach `Authorization: Bearer <token>`. The JWT token is held in `localStorage` under `cleanroute.token`. The journey planner stores selected place coordinates and does not expose coordinate inputs in the main planner. Place search and environmental panels are public; the backend requires authentication to calculate/save/retrieve routes.
 
 ## Database architecture
 
@@ -215,18 +215,18 @@ This is a deterministic mock route pipeline; it is not real road routing or a pr
 - Distances are computed in the mock from haversine geometry; durations are estimated with mode-specific assumed speeds and detour factors. They are not external map service results.
 - No external routing provider is configured or integrated. Keep future adapter code behind `RoutingProvider` and never label mock paths as Google directions.
 
-## Frontend journey planning (current working tree)
+## Frontend journey planning
 
-The currently dirty frontend work has a Google-Maps-inspired but CleanRoute-styled planner:
+The CleanRoute-styled planner:
 
-1. From/To search inputs accept place names; a 400 ms debounce calls Photon after three characters, displays primary/context names, aborts outdated requests, and requires the user to select a suggestion before coordinates are valid.
+1. From/To search inputs accept place names; a 400 ms debounce calls the public backend `/api/places/search` endpoint after three characters, displays primary/context names, aborts outdated requests, and requires selection before coordinates are valid.
 2. Swap exchanges full selected-location state. Coordinates are used internally and sent to `/api/routes/calculate` only after selection.
 3. Planner offers Driving/Walking/Cycling mapped to `CAR`/`WALK`/`CYCLE` and FASTEST/CLEANEST/BALANCED.
 4. Route calculation still requires JWT; guests can inspect/search locations but cannot calculate or save. Saved places/routes, dashboard, preferences, notification widgets continue to use existing contracts.
 5. Map uses OSM tiles; origin/destination markers, selected route emphasis, alternatives, and fixed AQI cell markers are rendered. Only geometry returned by backend is used; missing/invalid geometry triggers a fallback message.
 6. Cards display backend rank order, distance, duration, modeled exposure, preference score/components, provider/generated provenance, reasons, and data-unavailable labels for absent values. Per-route AQI remains unavailable.
 
-The Photon provider is separate from `RoutingProvider`. The current Vite app calls the public Photon endpoint from the browser, configured by `VITE_PHOTON_API_URL`; it is not a backend feature. Search needs internet and can fail due to endpoint/rate constraints.
+The geocoding provider is separate from `RoutingProvider`. The backend selects Photon (default) or the deterministic mock; the frontend knows only the normalized CleanRoute API DTO. Search needs internet when Photon is selected. Global search does not imply global environmental coverage; route exposure is shown unavailable when either endpoint is outside the 35 km coverage radius around the three fixed Delhi demo cells.
 
 ## Dashboard and notifications
 
@@ -271,7 +271,10 @@ All examples below are placeholders/defaults read from tracked config. Never doc
 | `OBSERVATION_RATE_LIMIT_BACKOFF_MS` | Max in-memory rate-limit backoff (1000–300000) | No | `60000` | Ingestion scheduler |
 | `AQI_API_KEY`, `WEATHER_API_KEY`, `TRAFFIC_API_KEY` | Reserved credentials for future providers | No; unused by mocks | empty placeholder | Bound config only; no real integrations |
 | `VITE_API_BASE_URL` | Browser-to-backend origin | No | `http://localhost:8080` | Frontend API helper; Compose frontend env |
-| `VITE_PHOTON_API_URL` | Compatible geocoder endpoint | No in current dirty tree | `https://photon.komoot.io/api/` | Current frontend Photon adapter and Compose (uncommitted changes) |
+| `GEOCODING_PROVIDER` | Backend geocoder selection | No | `photon` (`mock` also supported) | `GeocodingService` |
+| `PHOTON_API_URL` | Photon endpoint | No | `https://photon.komoot.io/api/` | `PhotonGeocodingProvider` |
+| `GEOCODING_CONNECT_TIMEOUT_MS` / `GEOCODING_READ_TIMEOUT_MS` | Connection/request timeout | No | `2000` / `5000` | Backend Photon HTTP client |
+| `GEOCODING_COVERAGE_RADIUS_METERS` | Approximate radius around fixed demo cells | No | `35000` | `supportedArea` response marker |
 
 Additional scoring/suitability/notification thresholds are in `backend/src/main/resources/application.yml`, not environment variables by default. Refer to that file before documenting new tunables.
 
@@ -320,7 +323,7 @@ npm test -- --run
 npm run build
 ```
 
-Open `http://localhost:5173`; backend must be reachable at `VITE_API_BASE_URL` and CORS must include that origin. A direct frontend dev server can set `VITE_API_BASE_URL` and (for current dirty code) optional `VITE_PHOTON_API_URL` in the local shell or Vite environment.
+Open `http://localhost:5173`; backend must be reachable at `VITE_API_BASE_URL` and CORS must include that origin. Geocoder settings are configured on the backend, not in Vite.
 
 ## Ports and networking
 

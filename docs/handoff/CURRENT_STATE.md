@@ -22,7 +22,7 @@ CleanRoute is a Java 21 / Spring Boot 3.5.6 modular monolith with PostgreSQL/Fly
 - Pollution score and bounded forecast/current/history APIs.
 - Authenticated route calculation/detail/save/history; mock geometry and backend ranking.
 - Dashboard, notification list/read and owner isolation.
-- React dashboard and current working-tree human-readable Photon place search, map, route cards and account flows.
+- React dashboard with backend-proxied human-readable place search, map, route cards and account flows.
 - Last verification run for this documentation task: `mvn -q clean verify` passed (64 tests across 17 test classes, 0 failures/errors/skips); `npm test -- --run` passed (5 tests); `npm run build` passed. These are point-in-time results before final handoff markdown-only additions. Compose had been validated in prior work, not rerun after docs creation.
 
 ## Limitations
@@ -31,17 +31,18 @@ CleanRoute is a Java 21 / Spring Boot 3.5.6 modular monolith with PostgreSQL/Fly
 - Forecast is a weighted historical baseline, not ML or external forecast.
 - Exactly three fixed Delhi demo cells; no arbitrary geographic lookup or PostGIS.
 - No route-specific AQI response. Default route mock provides no green/cycling/elevation metadata.
-- Current frontend Photon search is public internet-dependent and best effort.
+- Photon-backed place search is public-internet-dependent and best effort; the browser calls the backend API.
+- Global search results do not imply environmental data coverage; only locations near three fixed Delhi demo cells are marked supported.
 - Compose frontend is Vite dev server. No production serving/release pipeline is documented as implemented.
 - No Phase 11 is present in current implementation plan.
 
 ## Current frontend state
 
-The current uncommitted frontend work has human-readable origin/destination fields, debounced Photon suggestions via an abstraction, internal coordinate selection/swap, mode/preference controls, route API calls, Leaflet geometry display and backend result cards. Existing dashboard/account/AQI/forecast/notification functionality remains in `App.tsx`. Preserve all listed dirty files.
+The committed frontend has human-readable origin/destination fields, debounced backend place suggestions, internal coordinate selection/swap, mode/preference controls, route API calls, Leaflet geometry display and backend result cards. Existing dashboard/account/AQI/forecast/notification functionality remains in `App.tsx`.
 
 ## Current backend state
 
-Spring MVC controllers delegate into security, observation, pollution, route, dashboard and notification services. Provider interfaces are injectable; actual AQI/weather/traffic/routing/forecast/notification providers are mock, historical, or in-app implementations. Protected ownership is principal-derived.
+Spring MVC controllers delegate into security, observation, pollution, route, geocoding, dashboard and notification services. Geocoding search is public and provider-neutral; Photon or deterministic mock implementations are selected by backend configuration. Environmental/routing/forecast/notification implementations remain mock, historical, or in-app. Protected ownership is principal-derived.
 
 ## Current database state
 
@@ -56,7 +57,7 @@ Public APIs: health, auth, AQI current/history, pollution score, forecast/curren
 - Real AQI, weather, traffic and road-routing provider adapters are absent.
 - Geographic lookup remains fixed-cell demo only.
 - Optional green-area/cycling/elevation metadata is not populated by the current route mock.
-- Photon search can be unavailable externally.
+- Photon search can be unavailable externally. Global geocoder results outside the three fixed Delhi demo cells have no supported environmental coverage.
 - Current handoff-time journey planner edits remain uncommitted.
 - The plan has no subsequent Phase 11 item; no later phase should be inferred.
 

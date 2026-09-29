@@ -23,6 +23,8 @@ services:
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-cleanroute}
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:?Set a local POSTGRES_PASSWORD in .env}
       JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env}
+      GEOCODING_PROVIDER: ${GEOCODING_PROVIDER:-photon}
+      PHOTON_API_URL: ${PHOTON_API_URL:-https://photon.komoot.io/api/}
     ports:
       - "${BACKEND_PORT:-8080}:8080"
     depends_on:
@@ -37,7 +39,6 @@ services:
     build: { context: ./frontend }
     environment:
       VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8080}
-      VITE_PHOTON_API_URL: ${VITE_PHOTON_API_URL:-https://photon.komoot.io/api/}
     ports:
       - "${FRONTEND_PORT:-5173}:5173"
     depends_on:

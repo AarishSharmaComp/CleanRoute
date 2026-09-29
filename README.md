@@ -75,17 +75,18 @@ npm test
 npm run build
 ```
 
-The frontend provides place-name journey planning, current conditions, observed/forecast AQI charting, a Leaflet map, saved places and routes, calculation history, preferences, and notifications. Location suggestions use the replaceable `LocationSearchProvider` abstraction, with Photon (OpenStreetMap data) as the default and `VITE_PHOTON_API_URL` as an optional endpoint override. The public Photon service requires internet access and is best-effort; it does not require an API key. Route calculation continues to use the authenticated backend API and its deterministic mock routing provider. The frontend calls the backend using `VITE_API_BASE_URL` (default `http://localhost:8080`).
+The frontend provides place-name journey planning, current conditions, observed/forecast AQI charting, a Leaflet map, saved places and routes, calculation history, preferences, and notifications. Location suggestions call the public unauthenticated `/api/places/search` backend endpoint, which uses the replaceable `GeocodingProvider` abstraction and Photon by default. Photon requires internet access and is best-effort; it does not require an API key. Route calculation continues to use the authenticated backend API and its deterministic mock routing provider. The frontend calls the backend using `VITE_API_BASE_URL` (default `http://localhost:8080`).
 
 ## Configuration
 
-See `.env.example` for Compose ports, PostgreSQL settings, `JWT_SECRET`, and observation settings. `VITE_PHOTON_API_URL` can point the frontend geocoder adapter at a compatible endpoint; no geocoder key is needed. Set a non-empty `POSTGRES_PASSWORD` in `.env`. Backend settings can also use `SPRING_DATASOURCE_URL`, `SPRING_DATASOURCE_USERNAME`, `SPRING_DATASOURCE_PASSWORD`, `JWT_SECRET`, `JWT_EXPIRATION_MS`, `SERVER_PORT`, `CLEANROUTE_ALLOWED_ORIGINS`, `OBSERVATION_INGESTION_INTERVAL_MS` (default 900000; minimum 60000), `OBSERVATION_PROVIDER_TIMEOUT_MS` (default 5000), and `OBSERVATION_RATE_LIMIT_BACKOFF_MS` (default 60000; maximum 300000). Suitability and notification baselines are configured under `app.routes.suitability` and `app.notifications` in `application.yml`. Provider API keys remain optional placeholders; deterministic mocks are used locally.
+See `.env.example` for Compose ports, PostgreSQL settings, `JWT_SECRET`, observation settings, and backend geocoding settings (`GEOCODING_PROVIDER`, `PHOTON_API_URL`, and timeout/coverage values). Set a non-empty `POSTGRES_PASSWORD` in `.env`. Backend settings can also use `SPRING_DATASOURCE_URL`, `SPRING_DATASOURCE_USERNAME`, `SPRING_DATASOURCE_PASSWORD`, `JWT_SECRET`, `JWT_EXPIRATION_MS`, `SERVER_PORT`, `CLEANROUTE_ALLOWED_ORIGINS`, `OBSERVATION_INGESTION_INTERVAL_MS` (default 900000; minimum 60000), `OBSERVATION_PROVIDER_TIMEOUT_MS` (default 5000), and `OBSERVATION_RATE_LIMIT_BACKOFF_MS` (default 60000; maximum 300000). Suitability and notification baselines are configured under `app.routes.suitability` and `app.notifications` in `application.yml`. Provider API keys remain optional placeholders; deterministic mocks are used locally.
 
 ## Current API
 
 | Method | Path | Purpose |
 |---|---|---|
 | `GET` | `/api/health` | Backend liveness response |
+| `GET` | `/api/places/search?q=...` | Public normalized place search; results include whether the location is within the fixed Delhi demo environmental coverage |
 | `POST` | `/api/auth/register` | Register a user and return a bearer token |
 | `POST` | `/api/auth/login` | Authenticate and return a bearer token |
 | `GET`, `PUT` | `/api/users/me` | Read/update the authenticated user's profile |

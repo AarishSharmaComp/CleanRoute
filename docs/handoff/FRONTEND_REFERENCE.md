@@ -8,7 +8,7 @@ The frontend is React 19 + TypeScript + Vite 7. Vitest and Testing Library are u
 |---|---|
 | `frontend/src/main.tsx` | React root and application bootstrap. |
 | `frontend/src/App.tsx` | Main screen/state orchestration: account state, dashboard, journey planner, environmental panels, route result/map, saved data and notifications. |
-| `frontend/src/location/locationSearch.ts` | Provider-neutral location search contract and Photon adapter in the current working tree. |
+| `frontend/src/location/locationSearch.ts` | Provider-neutral location search contract and CleanRoute backend API adapter. |
 | `frontend/src/location/LocationSearchField.tsx` | Debounced location suggestion field, selection and status UI. |
 | `frontend/src/styles.css` | Application layout, visual system and responsive styles. |
 | `frontend/src/vite-env.d.ts` | Vite environment variable types. |
@@ -33,7 +33,7 @@ The dashboard presents backend aggregation: current AQI, observed series/history
 
 ## Journey planner
 
-The current source tree has uncommitted journey-planner changes, which should be preserved unless the user explicitly asks to change them. The planner provides:
+The journey planner provides:
 
 - From/To human-readable search fields and a swap action.
 - Search suggestions only after a minimum query length and 400 ms debounce; an actual suggestion must be selected before coordinates are accepted.
@@ -48,9 +48,9 @@ The UI is map-planning inspired but is not Google Maps and does not claim real r
 
 ## Location search and map
 
-`LocationSearchProvider` is the UI-facing abstraction. The current Photon adapter calls the public Photon endpoint from the browser; it does not require an API key. Requests are debounced and stale requests are aborted/ignored. Empty query, pending, no-results, and network-failure states are handled. Photon may be unavailable/rate-limited; no backend geocoder exists. Search coordinates are inputs to the existing mock route provider, not geometry from Photon.
+`LocationSearchProvider` is the UI-facing abstraction. Its implementation calls the public backend `GET /api/places/search?q=...`; the backend chooses Photon or the deterministic mock. Requests are debounced and stale requests are aborted/ignored. Empty query, pending, no-results, and network-failure states are handled. Photon may be unavailable/rate-limited. Results include `supportedArea`, which is true only near the fixed Delhi demo cells; outside that area the UI marks environmental route coverage unavailable. Search coordinates are inputs to the existing mock route provider, not geometry from Photon.
 
-The map uses React Leaflet/Leaflet and OpenStreetMap tiles/attribution. It renders start/end markers and route lines from response geometry and fits bounds where valid geometry is available. When geometry is unavailable or unusable, the UI presents a fallback instead of drawing an invented path. OSM tiles and Photon require network access.
+The map uses React Leaflet/Leaflet and OpenStreetMap tiles/attribution. It renders start/end markers and route lines from response geometry and fits bounds where valid geometry is available. When geometry is unavailable or unusable, the UI presents a fallback instead of drawing an invented path. OSM tiles require internet; Photon network access is required by the backend when Photon is configured.
 
 ## Notifications and account data
 
@@ -70,7 +70,8 @@ The notification UI uses authenticated list/read APIs. Read state changes throug
 | Variable | Purpose |
 |---|---|
 | `VITE_API_BASE_URL` | Backend origin used by frontend API calls; defaults to `http://localhost:8080`. |
-| `VITE_PHOTON_API_URL` | Current location search endpoint override; defaults to the public Photon API URL in the current dirty work. No key is embedded. |
+
+Backend geocoding configuration: `GEOCODING_PROVIDER` (`photon` or `mock`), `PHOTON_API_URL`, `GEOCODING_CONNECT_TIMEOUT_MS`, `GEOCODING_READ_TIMEOUT_MS`, and `GEOCODING_COVERAGE_RADIUS_METERS`.
 
 Commands from repository root:
 

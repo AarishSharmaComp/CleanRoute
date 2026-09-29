@@ -17,10 +17,12 @@ flowchart TD
   SVC --> REPO[JPA and JDBC repositories]
   REPO --> DB[(PostgreSQL)]
   MIG[Flyway migrations] --> DB
-  FE -. public place search in current dirty frontend .-> GEO[Photon geocoder]
+  FE -->|GET /api/places/search| API
+  SVC --> GEO[GeocodingProvider]
+  GEO --> PHOTON[Photon or deterministic mock]
 ```
 
-The optional Photon request is browser-side location lookup only. Route geometry remains from the backend `RoutingProvider`; it is not returned by Photon.
+Place search is proxied through the backend `GeocodingProvider`; normalized CleanRoute results are returned to the browser. Route geometry remains from the backend `RoutingProvider`; it is not returned by Photon.
 
 ## Backend package responsibilities
 
@@ -168,14 +170,17 @@ All tables, columns, checks, and indexes are enumerated in [DATABASE_REFERENCE.m
 ```mermaid
 sequenceDiagram
   participant UI as React App
-  participant Search as LocationSearchProvider
+  participant Search as Backend GeocodingProvider
   participant Photon
   participant Client as API client
   participant Backend as Spring Boot
   UI->>Search: query after debounce/min length
+  Client->>Backend: GET /api/places/search?q=... (public)
+  Backend->>Search: search(query)
   Search->>Photon: geocoding request
   Photon-->>Search: name, display context, coordinates
-  Search-->>UI: suggestions; selected coordinates stored in state
+  Backend-->>Client: normalized place results + supportedArea
+  Client-->>UI: suggestions; selected coordinates stored in state
   UI->>Client: route request + stored JWT
   Client->>Backend: authenticated JSON request
   Backend-->>Client: backend-ranked route response
@@ -183,7 +188,7 @@ sequenceDiagram
   UI->>UI: render returned geometry and route cards in response order
 ```
 
-The frontend is currently a single main React application in `App.tsx`; API calls use the API client and token from browser storage. Local planner fields and results are React state, while profile/preferences/saved data/dashboard/notifications are fetched from backend APIs. The map uses React Leaflet/Leaflet and OpenStreetMap tiles. Errors/loading/empty states are rendered by UI components rather than raw server traces.
+The frontend is currently a single main React application in `App.tsx`; API calls use the API client and token from browser storage where required. Place search is public and calls the backend endpoint; profile/preferences/saved data/dashboard/notifications use authenticated APIs. Place results identify whether they are near a fixed Delhi demo cell. The map uses React Leaflet/Leaflet and OpenStreetMap tiles. Errors/loading/empty states are rendered by UI components rather than raw server traces.
 
 ## Validation and persistence invariants
 
@@ -197,4 +202,4 @@ The frontend is currently a single main React application in `App.tsx`; API call
 
 ## Frontend details
 
-See [FRONTEND_REFERENCE.md](FRONTEND_REFERENCE.md) for source tree, data flow, UI states, environment variables, and commands. Current uncommitted place-search work should be treated as user work and preserved. See [CURRENT_STATE.md](CURRENT_STATE.md) for the observed dirty tree.
+See [FRONTEND_REFERENCE.md](FRONTEND_REFERENCE.md) for source tree, data flow, UI states, environment variables, and commands. Always inspect current Git state before relying on snapshots in [CURRENT_STATE.md](CURRENT_STATE.md).

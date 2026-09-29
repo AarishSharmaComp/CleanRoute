@@ -17,6 +17,7 @@ This reflects current backend controllers. JSON field names follow the Java reco
 | `GET /api/health` | No | None | 200 with application/database status when `SELECT 1` succeeds; 503 if DB check fails. |
 | `POST /api/auth/register` | No | JSON `email`, `password`, `displayName`; valid email <=254, password 8–72 characters, display name <=100. | 201 safe user/token DTO. Duplicate email returns 409. Password is BCrypt-hashed and hash is never returned. |
 | `POST /api/auth/login` | No | JSON `email`, `password`. | 200 token + safe user fields; invalid credentials return 401. |
+| `GET /api/places/search` | No | Required `q`, trimmed length 3–200. | Up to six normalized results: `name`, `displayName`, `context`, `latitude`, `longitude`, `supportedArea`; generic 503 for provider failure. |
 | `GET /api/aqi/current` | No | Optional `cell` (defaults to central demo cell in the current controller). | Current pollution observation with timestamp, provider/generated provenance and stale indicator. Unknown cell or no current row returns 404. `stale` becomes true after the configured 30-minute age threshold. |
 | `GET /api/aqi/history` | No | Required `cell`, `start`, `end`; optional `intervalMinutes` (15 only), `limit` (default 100, max 1000), `offset` (default 0). Start/end ISO timestamps; range <=90 days; cell must exist. | Bounded historical observation list; known cell with no matching records returns 200 and empty list. Invalid range/interval returns 400; unknown cell 404. |
 | `GET /api/pollution/score` | No | Required `cell`, `at`, `durationSeconds`, `distanceMeters`, `mode`; 15-minute-aligned timestamp within allowed historical window, duration 1–86400, distance >0 and <=200000, supported travel mode. | One interval comparative pollution score with available/missing measurements, components, context, and provenance. Missing observation/cell 404; insufficient usable measurements 422; invalid parameters 400. It does not rank routes. |
@@ -119,4 +120,4 @@ The example intentionally shows optional numeric values as `null`; clients must 
 
 ## Endpoint groups not present
 
-There is no weather/traffic query endpoint, arbitrary geographic-cell creation/search API, route provider credentials endpoint, real geocoder endpoint, notification delivery endpoint, or separate forecast-job API. Frontend Photon search is not a backend API.
+There is no weather/traffic query endpoint, arbitrary geographic-cell creation/search API, route provider credentials endpoint, notification delivery endpoint, or separate forecast-job API. Place search is proxied through the backend provider abstraction; Photon-specific response structures are not exposed by the API.

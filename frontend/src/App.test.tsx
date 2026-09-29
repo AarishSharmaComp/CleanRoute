@@ -2,7 +2,7 @@ import { cleanup, fireEvent, render, screen, within } from '@testing-library/rea
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ReactNode } from 'react'
 import App from './App'
-import { PhotonLocationSearchProvider } from './location/locationSearch'
+import { BackendLocationSearchProvider } from './location/locationSearch'
 
 vi.mock('react-leaflet', () => ({
   MapContainer: ({ children }: { children: ReactNode }) => <div aria-label="City map">{children}</div>,
@@ -63,15 +63,12 @@ describe('CleanRoute dashboard', () => {
   it('searches and selects places, swaps endpoints, and sends selected coordinates using existing API enums', async () => {
     vi.stubGlobal('localStorage', { getItem: () => 'test-session-token', setItem: vi.fn(), removeItem: vi.fn() })
     let routeBody: Record<string, unknown> | null = null
-    const suggestions = {
-      features: [
-        { geometry: { coordinates: [77.209, 28.614] }, properties: { name: 'Delhi', city: 'Delhi', country: 'India' } },
-        { geometry: { coordinates: [77.391, 28.535] }, properties: { name: 'Noida', state: 'Uttar Pradesh', country: 'India' } },
-      ],
-    }
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = new URL(String(input))
-      if (url.hostname === 'photon.komoot.io') return { ok: true, status: 200, json: async () => suggestions } as Response
+      if (url.pathname === '/api/places/search') return { ok: true, status: 200, json: async () => [
+        { name: 'Delhi', displayName: 'Delhi, India', context: 'India', latitude: 28.614, longitude: 77.209, supportedArea: true },
+        { name: 'Noida', displayName: 'Noida, Uttar Pradesh, India', context: 'Uttar Pradesh, India', latitude: 28.535, longitude: 77.391, supportedArea: true },
+      ] } as Response
       if (url.pathname === '/api/routes/calculate') {
         routeBody = JSON.parse(String(init?.body)) as Record<string, unknown>
         return { ok: true, status: 200, json: async () => ({
@@ -127,21 +124,24 @@ describe('CleanRoute dashboard', () => {
 })
 
 describe('Photon location-search adapter', () => {
-  it('normalizes OSM place names and filters invalid coordinates', async () => {
-    const fetchMock = vi.fn(async (_input: RequestInfo | URL) => ({ ok: true, json: async () => ({ features: [
-      { geometry: { coordinates: [77.2, 28.6] }, properties: { name: 'Delhi', city: 'Delhi', country: 'India' } },
-      { geometry: { coordinates: [300, 91] }, properties: { name: 'Invalid' } },
-    ] }) }) as Response)
+  it('normalizes backend place results and preserves environmental coverage', async () => {
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL) => ({ ok: true, json: async () => [
+      { name: 'Delhi', displayName: 'Delhi, India', context: 'India', latitude: 28.6, longitude: 77.2, supportedArea: true },
+      { name: 'London', displayName: 'London, United Kingdom', context: 'United Kingdom', latitude: 51.5, longitude: -0.1, supportedArea: false },
+    ] }) as Response)
     vi.stubGlobal('fetch', fetchMock)
-    const result = await new PhotonLocationSearchProvider().search(' Delhi ')
-    expect(result).toEqual([{ name: 'Delhi', context: 'India', displayName: 'Delhi, India', latitude: 28.6, longitude: 77.2 }])
-    expect(String(fetchMock.mock.calls[0][0])).toContain('q=Delhi')
+    const result = await new BackendLocationSearchProvider().search(' Delhi ')
+    expect(result).toEqual([
+      { name: 'Delhi', context: 'India', displayName: 'Delhi, India', latitude: 28.6, longitude: 77.2, supportedArea: true },
+      { name: 'London', context: 'United Kingdom', displayName: 'London, United Kingdom', latitude: 51.5, longitude: -0.1, supportedArea: false },
+    ])
+    expect(String(fetchMock.mock.calls[0][0])).toContain('/api/places/search?q=Delhi')
   })
 
   it('does not call the geocoder for empty or too-short searches', async () => {
     const fetchMock = vi.fn()
     vi.stubGlobal('fetch', fetchMock)
-    const provider = new PhotonLocationSearchProvider()
+    const provider = new BackendLocationSearchProvider()
     expect(await provider.search('  ')).toEqual([])
     expect(await provider.search('NY')).toEqual([])
     expect(fetchMock).not.toHaveBeenCalled()

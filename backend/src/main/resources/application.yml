@@ -60,3 +60,9 @@ app:
     high-pm25-threshold: 35
     cleaner-exposure-improvement: 5
     result-limit: 50
+  geocoding:
+    provider: ${GEOCODING_PROVIDER:photon}
+    photon-url: ${PHOTON_API_URL:https://photon.komoot.io/api/}
+    connect-timeout-ms: ${GEOCODING_CONNECT_TIMEOUT_MS:2000}
+    read-timeout-ms: ${GEOCODING_READ_TIMEOUT_MS:5000}
+    coverage-radius-meters: ${GEOCODING_COVERAGE_RADIUS_METERS:35000}
