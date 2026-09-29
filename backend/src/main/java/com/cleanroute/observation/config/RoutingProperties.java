@@ -8,6 +8,7 @@ import org.springframework.stereotype.Component;
 public class RoutingProperties {
     private String provider = "mock";
     private String osrmUrl = "https://router.project-osrm.org";
+    private String valhallaUrl = "https://valhalla1.openstreetmap.de";
     private int connectTimeoutMs = 2000;
     private int readTimeoutMs = 5000;
     private int maxGeometryPoints = 5000;
@@ -16,6 +17,8 @@ public class RoutingProperties {
     public void setProvider(String provider) { this.provider = provider; }
     public String getOsrmUrl() { return osrmUrl; }
     public void setOsrmUrl(String osrmUrl) { this.osrmUrl = osrmUrl; }
+    public String getValhallaUrl() { return valhallaUrl; }
+    public void setValhallaUrl(String valhallaUrl) { this.valhallaUrl = valhallaUrl; }
     public int getConnectTimeoutMs() { return connectTimeoutMs; }
     public void setConnectTimeoutMs(int connectTimeoutMs) { this.connectTimeoutMs = connectTimeoutMs; }
     public int getReadTimeoutMs() { return readTimeoutMs; }

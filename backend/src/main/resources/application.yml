@@ -47,6 +47,7 @@ app:
   routing:
     provider: ${ROUTING_PROVIDER:mock}
     osrm-url: ${OSRM_API_URL:https://router.project-osrm.org}
+    valhalla-url: ${VALHALLA_API_URL:https://valhalla1.openstreetmap.de}
     connect-timeout-ms: ${ROUTING_CONNECT_TIMEOUT_MS:2000}
     read-timeout-ms: ${ROUTING_READ_TIMEOUT_MS:5000}
     max-geometry-points: ${ROUTING_MAX_GEOMETRY_POINTS:5000}

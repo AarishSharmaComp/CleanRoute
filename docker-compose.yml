@@ -27,6 +27,7 @@ services:
       PHOTON_API_URL: ${PHOTON_API_URL:-https://photon.komoot.io/api/}
       ROUTING_PROVIDER: ${ROUTING_PROVIDER:-mock}
       OSRM_API_URL: ${OSRM_API_URL:-https://router.project-osrm.org}
+      VALHALLA_API_URL: ${VALHALLA_API_URL:-https://valhalla1.openstreetmap.de}
       ROUTING_CONNECT_TIMEOUT_MS: ${ROUTING_CONNECT_TIMEOUT_MS:-2000}
       ROUTING_READ_TIMEOUT_MS: ${ROUTING_READ_TIMEOUT_MS:-5000}
       ROUTING_MAX_GEOMETRY_POINTS: ${ROUTING_MAX_GEOMETRY_POINTS:-5000}

@@ -7,7 +7,7 @@ import org.springframework.stereotype.Component;
 
 /** Keeps invalid routing configuration explicit instead of silently using mock geometry. */
 @Component
-@ConditionalOnMissingBean({MockRoutingProvider.class, OSRMRoutingProvider.class})
+@ConditionalOnMissingBean({MockRoutingProvider.class, OSRMRoutingProvider.class, ValhallaRoutingProvider.class, ModeAwareRoutingProvider.class})
 public class UnavailableRoutingProvider implements RoutingProvider {
     @Override
     public String providerId() {
