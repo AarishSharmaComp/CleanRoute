@@ -12,6 +12,8 @@ import org.junit.jupiter.api.Test;
 
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
+import java.net.URLDecoder;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -22,7 +24,8 @@ class ValhallaRoutingProviderTest {
 
     @Test void usesPedestrianCostingPreservesDecodedGeometryAndAlternatives() throws Exception {
         String body = response("pedestrian", 49.561, 36118.98, 51.176, 36200);
-        HttpServer server = server(body);
+        AtomicReference<String> query = new AtomicReference<>();
+        HttpServer server = server(body, query);
         try {
             RoutingProperties properties = new RoutingProperties();
             properties.setValhallaUrl("http://127.0.0.1:" + server.getAddress().getPort());
@@ -34,11 +37,13 @@ class ValhallaRoutingProviderTest {
             assertThat(paths.getFirst().geometry()).containsExactly(
                     new Coordinate(28.6, 77.2), new Coordinate(28.61, 77.21));
             assertThat(paths.get(1).alternativeId()).isEqualTo("valhalla-2");
+            assertThat(URLDecoder.decode(query.get(), StandardCharsets.UTF_8)).contains("\"costing\":\"pedestrian\"").contains("\"alternates\":2");
         } finally { server.stop(0); }
     }
 
     @Test void usesBicycleCostingAndRejectsCarAndJogRequests() throws Exception {
-        HttpServer server = server(response("bicycle", 51.063, 10659.08, 51.176, 10673.145));
+        AtomicReference<String> query = new AtomicReference<>();
+        HttpServer server = server(response("bicycle", 51.063, 10659.08, 51.176, 10673.145), query);
         try {
             RoutingProperties properties = new RoutingProperties();
             properties.setValhallaUrl("http://127.0.0.1:" + server.getAddress().getPort());
@@ -46,14 +51,17 @@ class ValhallaRoutingProviderTest {
             var request = new RoutingRequest(walk.origin(), walk.destination(), TravelMode.CYCLE);
             assertThat(provider.alternatives(request)).extracting(RoutePath::distanceMeters)
                     .containsExactly(51063.0, 51176.0);
+            assertThat(URLDecoder.decode(query.get(), StandardCharsets.UTF_8)).contains("\"costing\":\"bicycle\"").contains("\"alternates\":2");
             assertThatThrownBy(() -> provider.route(new RoutingRequest(walk.origin(), walk.destination(), TravelMode.CAR)))
                     .isInstanceOf(RuntimeException.class);
         } finally { server.stop(0); }
     }
 
-    private static HttpServer server(String body) throws Exception {
+    private static HttpServer server(String body) throws Exception { return server(body, new AtomicReference<>()); }
+    private static HttpServer server(String body, AtomicReference<String> query) throws Exception {
         HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.createContext("/route", exchange -> {
+            query.set(exchange.getRequestURI().getRawQuery().substring("json=".length()));
             byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
             exchange.sendResponseHeaders(200, bytes.length);
             exchange.getResponseBody().write(bytes); exchange.close();

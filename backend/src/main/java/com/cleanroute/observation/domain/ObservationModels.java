@@ -1,9 +1,11 @@
 package com.cleanroute.observation.domain;
 
 import java.time.Instant;
+import java.util.List;
 
 public final class ObservationModels {
     private ObservationModels() {}
+    public static final List<String> POLLUTANTS = List.of("PM2.5", "PM10", "NO2", "SO2", "CO", "O3");
     public record GeographicCell(String cellId, double latitude, double longitude) {}
     /** Concentrations are normalized to µg/m³, except CO in mg/m³; AQI retains its provider's index scale. */
     public record PollutionObservation(String cellId, Instant observedAt, Integer aqi, Double pm25, Double pm10,

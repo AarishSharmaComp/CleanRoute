@@ -67,8 +67,9 @@ class RouteServiceRankingTest {
         when(forecasts.forecast(anyString(), any(Instant.class))).thenAnswer(call -> {
             String cell = call.getArgument(0);
             double pm25 = switch (cell) { case "central" -> 24.5; case "south" -> 3.5; default -> 7.0; };
+            double ratio = pm25 / 35.0;
             return new PollutionForecast(cell, call.getArgument(1), Instant.now(), null, pm25,
-                    null, null, null, null, null, 80, "HIGH", 4, "test", "test-v1", true);
+                    ratio * 50.0, ratio * 40.0, null, null, ratio * 100.0, 80, "HIGH", 4, "test", "test-v1", true);
         });
         var service = new RouteService(routing, observations, forecasts,
                 new PollutionEngine(new PollutionScoringProperties()), storage, new ObjectMapper().findAndRegisterModules());

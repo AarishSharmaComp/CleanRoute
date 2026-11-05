@@ -4,6 +4,7 @@ import com.cleanroute.notification.service.NotificationService;
 import com.cleanroute.pollution.domain.ForecastModels.PollutionForecast;
 import com.cleanroute.route.domain.RoutePlanningModels.CalculationResult;
 import com.cleanroute.route.domain.RoutePlanningModels.RouteAlternative;
+import com.cleanroute.route.domain.EnvironmentalQuality;
 import com.cleanroute.domain.RoutePreference;
 import com.cleanroute.domain.TravelMode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -55,10 +56,14 @@ class NotificationApiTest {
                 null, null, null, null, 40, "LOW", 2, "historical-average", "test-v1", true);
         notifications.checkForecast(owner, forecast);
         notifications.checkForecast(owner, forecast);
-        var first = new RouteAlternative("fast", 1, "mock", true, List.of(), 1000, 600, 40,
-                30, 70, Map.of("expectedPollutionExposure", 40.0), List.of("Fastest"));
-        var cleaner = new RouteAlternative("cleaner", 2, "mock", true, List.of(), 1200, 700, 20,
-                30, 65, Map.of("expectedPollutionExposure", 20.0), List.of("Cleaner"));
+        var quality = new EnvironmentalQuality(100, 100, List.of(), Map.of(), "MODEL_FORECAST", true,
+                true, "MODEL_FORECAST|open-meteo-air-quality|true|PM2.5,PM10,NO2,O3", target, target);
+        var first = new RouteAlternative("fast", 1, "mock", true, List.of(), 1000, 600, 40.0,
+                30, 70, Map.of("expectedPollutionExposure", 40.0), List.of("Fastest"),
+                "open-meteo-air-quality", "complete", "MODEL_FORECAST", 2, 2, 0, 100.0, null, quality);
+        var cleaner = new RouteAlternative("cleaner", 2, "mock", true, List.of(), 1200, 700, 20.0,
+                30, 65, Map.of("expectedPollutionExposure", 20.0), List.of("Cleaner"),
+                "open-meteo-air-quality", "complete", "MODEL_FORECAST", 2, 2, 0, 100.0, null, quality);
         notifications.checkCleanerAlternative(owner, new CalculationResult(UUID.randomUUID(), target,
                 TravelMode.WALK, RoutePreference.FASTEST, List.of(first, cleaner), true, "Demo only"));
 

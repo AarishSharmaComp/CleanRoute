@@ -7,7 +7,6 @@ import com.cleanroute.observation.domain.RoutingModels.RoutePath;
 import com.cleanroute.observation.domain.RoutingModels.RoutingRequest;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
 import org.springframework.stereotype.Component;
 
 import java.net.URI;
@@ -66,7 +65,8 @@ public class ValhallaRoutingProvider implements RoutingProvider {
         destination.put("lat", request.destination().latitude()); destination.put("lon", request.destination().longitude()); destination.put("type", "break");
         payload.put("costing", request.mode() == TravelMode.CYCLE ? "bicycle" : "pedestrian");
         payload.put("units", "kilometers");
-        payload.put("alternates", true);
+        // Valhalla expects a number, not a boolean. The service may still return fewer alternatives.
+        payload.put("alternates", 2);
         String base = properties.getValhallaUrl();
         if (base == null || base.isBlank()) throw ProviderFailureException.temporary();
         String encoded = java.net.URLEncoder.encode(mapper.writeValueAsString(payload), java.nio.charset.StandardCharsets.UTF_8);

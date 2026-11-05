@@ -25,14 +25,17 @@ describe('CleanRoute dashboard', () => {
     vi.stubGlobal('localStorage', { getItem: () => storedToken, setItem: vi.fn(), removeItem: vi.fn() })
   })
   afterEach(() => cleanup())
-  it('renders route planning, map, and an account entry point', () => {
+  it('shows the overview and opens the separate route planning screen', () => {
     vi.stubGlobal('fetch', vi.fn(() => new Promise(() => undefined)))
     render(<App />)
-    expect(screen.getByRole('heading', { name: /choose a clearer way through the city/i })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /take the route that lets you breathe easier/i })).toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: 'Route planning' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Plan a route' }))
+    expect(screen.getByRole('heading', { name: 'Plan a route' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'From here to there' })).toBeInTheDocument()
     expect(screen.getByRole('region', { name: 'Route planning' })).toBeInTheDocument()
     expect(screen.getByLabelText('City map')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Sign in' })).toBeInTheDocument()
+    expect(within(screen.getByRole('banner')).getByRole('button', { name: 'Sign in' })).toBeInTheDocument()
   })
 
   it('loads environmental data and the authenticated account dashboard from the API', async () => {
@@ -51,6 +54,7 @@ describe('CleanRoute dashboard', () => {
     vi.stubGlobal('fetch', fetchMock)
 
     render(<App />)
+    fireEvent.click(screen.getByRole('button', { name: 'My activity' }))
 
     expect(await screen.findByRole('region', { name: 'Account dashboard' })).toBeInTheDocument()
     expect(await screen.findByText(/No alerts yet/)).toBeInTheDocument()
@@ -91,6 +95,7 @@ describe('CleanRoute dashboard', () => {
     })
     vi.stubGlobal('fetch', fetchMock)
     render(<App />)
+    fireEvent.click(screen.getByRole('button', { name: 'Plan a route' }))
 
     const from = screen.getByLabelText('From')
     const to = screen.getByLabelText('To')

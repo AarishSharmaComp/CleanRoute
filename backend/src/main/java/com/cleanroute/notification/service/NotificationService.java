@@ -9,6 +9,7 @@ import com.cleanroute.notification.repository.NotificationRepository;
 import com.cleanroute.pollution.domain.ForecastModels.PollutionForecast;
 import com.cleanroute.repository.UserPreferenceRepository;
 import com.cleanroute.route.domain.RoutePlanningModels.CalculationResult;
+import com.cleanroute.route.domain.EnvironmentalQuality;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 import org.springframework.http.HttpStatus;
@@ -56,10 +57,13 @@ public class NotificationService {
 
     public void checkCleanerAlternative(UUID userId, CalculationResult result) {
         if (!enabled(userId) || result == null || result.alternatives().isEmpty()) return;
+         if (!EnvironmentalQuality.comparable(result.alternatives().stream()
+                 .map(com.cleanroute.route.domain.RoutePlanningModels.RouteAlternative::environmentalQuality).toList())) return;
          if (result.alternatives().getFirst().expectedPollutionExposure() == null) return;
          double selectedExposure = result.alternatives().getFirst().expectedPollutionExposure();
          double cleanestExposure = result.alternatives().stream()
-                 .map(a -> a.expectedPollutionExposure()).filter(java.util.Objects::nonNull)
+                  .filter(a -> a.environmentalQuality() != null && a.environmentalQuality().comparisonEligible())
+                  .map(a -> a.expectedPollutionExposure()).filter(java.util.Objects::nonNull)
                  .mapToDouble(Double::doubleValue).min().orElse(selectedExposure);
         if (selectedExposure - cleanestExposure < properties.getCleanerExposureImprovement()) return;
         provider.deliver(userId, new NotificationDraft("CLEANER_ALTERNATIVE",

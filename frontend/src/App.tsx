@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { MapContainer, Marker, Polyline, TileLayer, Tooltip, useMap } from 'react-leaflet'
 import L from 'leaflet'
@@ -34,14 +34,20 @@ type Forecast = { dataType: string; forecast: { targetAt: string; aqi: number | 
 type RouteComparison = { availableRoutes: number; rank: number; exposureDifferencePercent?: number | null; extraDurationSeconds?: number | null; extraDistanceMeters?: number | null }
 type SelectionReason = { type: string; headline: string; summary: string; comparison?: RouteComparison | null; factors: string[] }
 type Alternative = { alternativeId: string; rank: number; provider?: string; generated: boolean; geometry?: Point[] | null; distanceMeters: number | null; durationSeconds: number | null; expectedPollutionExposure: number | null; forecastQualityScore?: number | null; preferenceScore: number | null; scoreComponents?: Record<string, number | null> | null; reasons?: string[] | null; selectionReason?: SelectionReason | null; environmentalProvider?: string | null; environmentalCoverage?: string | null; environmentalCoveragePercent?: number | null; observationSource?: string | null; sampledPointCount?: number; availableSampleCount?: number; unavailableSampleCount?: number }
-type Calculation = { id: string; preference: string; alternatives: Alternative[]; generated?: boolean; limitation?: string }
-type SavedRoute = { id: string; originName: string; destinationName: string; travelMode: string; routePreference: string }
+type RouteRequestSnapshot = { origin: LocationSearchResult; destination: LocationSearchResult; mode: string; preference: string; key: string }
+type Calculation = { id: string; preference: string; alternatives: Alternative[]; generated?: boolean; limitation?: string; request: RouteRequestSnapshot }
+type SavedRoute = { id: string; originName: string; destinationName: string; mode: string; preference: string }
 type SavedPlace = { id: string; name: string; latitude: number; longitude: number; address: string | null }
-type RouteHistory = { id: string; originName: string; destinationName: string; travelMode: string; routePreference: string; pollutionScore: number | null; estimatedTravelTimeSeconds: number | null; distanceMeters: number | null; createdAt: string }
+type RouteHistory = { id: string; originName: string; destinationName: string; mode: string; preference: string; pollutionScore: number | null; durationSeconds: number | null; distanceMeters: number | null; createdAt: string }
 type UserNotification = { id: string; kind: string; title: string; message: string; createdAt: string; readAt: string | null }
 type Preferences = { preferredTravelMode: string; routePreference: string; notificationsEnabled: boolean; pollutionSensitivity: number }
 type Dashboard = { savedPlaces: SavedPlace[]; savedRoutes: SavedRoute[]; routeHistory: RouteHistory[]; notifications: UserNotification[]; unreadNotificationCount: number }
 type ChartPoint = { time: string; observedAqi?: number | null; forecastAqi?: number | null; generated?: boolean }
+
+function routeRequestKey(origin: LocationSearchResult | null, destination: LocationSearchResult | null, mode: string, preference: string): string {
+  if (!origin || !destination) return ''
+  return [origin.latitude, origin.longitude, destination.latitude, destination.longitude, mode, preference].join('|')
+}
 
 function api<T>(path: string, token?: string | null, init: RequestInit = {}): Promise<T> {
   return fetch(`${API}${path}`, {
@@ -88,11 +94,14 @@ const rankingModes = [
   { value: 'FASTEST', icon: '⚡', title: 'Fastest', detail: 'Prioritizes travel duration.' },
   { value: 'CLEANEST', icon: '🌿', title: 'Cleanest', detail: 'Prioritizes lower pollution exposure.' },
   { value: 'BALANCED', icon: '⚖', title: 'Balanced', detail: 'Balances travel time and pollution exposure.' },
+  { value: 'JOGGER', icon: '🏃', title: 'Jogger', detail: 'Favors low exposure, calmer roads, and comfortable running routes.' },
+  { value: 'CYCLIST', icon: '🚴', title: 'Cyclist', detail: 'Favors cycling-compatible routes with lower pollution and traffic.' },
 ]
 const travelModes = [
   { value: 'CAR', icon: '🚗', label: 'Driving' },
   { value: 'WALK', icon: '🚶', label: 'Walking' },
   { value: 'CYCLE', icon: '🚴', label: 'Cycling' },
+  { value: 'JOG', icon: '🏃', label: 'Jogging' },
 ]
 
 function displayValue(value: number | null | undefined, digits = 0): string {
@@ -123,6 +132,7 @@ function explanationTradeoffs(reason: SelectionReason | null | undefined): strin
 
 function App() {
   const [token, setToken] = useState<string | null>(() => localStorage.getItem('cleanroute.token'))
+  const [activePage, setActivePage] = useState<'overview' | 'planner' | 'activity'>('overview')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [displayName, setDisplayName] = useState('')
@@ -146,6 +156,17 @@ function App() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
+  const requestVersion = useRef(0)
+  const currentPlannerKey = routeRequestKey(origin.selected, destination.selected, mode, preference)
+  const currentPlannerKeyRef = useRef(currentPlannerKey)
+  currentPlannerKeyRef.current = currentPlannerKey
+
+  function invalidateCalculation() {
+    requestVersion.current += 1
+    setCalculation(null)
+    setSelectedRouteId(null)
+    setBusy(false)
+  }
 
   const loadEnvironment = useCallback(async () => {
     setLoading(true)
@@ -178,8 +199,10 @@ function App() {
       setRouteHistory(dashboard.routeHistory); setNotifications(dashboard.notifications)
       setUnreadCount(dashboard.unreadNotificationCount); setPreferences(profile.preferences)
       if (applyPlannerDefaults) {
-        setPreference(['FASTEST', 'CLEANEST', 'BALANCED'].includes(profile.preferences.routePreference) ? profile.preferences.routePreference : 'BALANCED')
-        setMode(['CAR', 'WALK', 'CYCLE'].includes(profile.preferences.preferredTravelMode) ? profile.preferences.preferredTravelMode : 'WALK')
+        const savedPreference = ['FASTEST', 'CLEANEST', 'BALANCED', 'JOGGER', 'CYCLIST'].includes(profile.preferences.routePreference) ? profile.preferences.routePreference : 'BALANCED'
+        const savedMode = ['CAR', 'WALK', 'CYCLE', 'JOG'].includes(profile.preferences.preferredTravelMode) ? profile.preferences.preferredTravelMode : 'WALK'
+        setPreference(savedPreference)
+        setMode(savedPreference === 'JOGGER' ? 'JOG' : savedPreference === 'CYCLIST' ? 'CYCLE' : savedMode)
       }
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Could not load your account dashboard') }
   }, [token])
@@ -198,7 +221,7 @@ function App() {
   }
 
   function signOut() {
-    localStorage.removeItem('cleanroute.token'); setToken(null); setSavedRoutes([]); setCalculation(null); setSelectedRouteId(null); setNotice('Signed out')
+    localStorage.removeItem('cleanroute.token'); setToken(null); setSavedRoutes([]); invalidateCalculation(); setNotice('Signed out')
   }
 
   async function calculateRoute(event: FormEvent) {
@@ -207,27 +230,39 @@ function App() {
     const to = destination.selected
     if (!from || !to) { setError('Choose a starting point and destination from the search suggestions.'); return }
     if (!token) { setError('Sign in to calculate and save routes'); return }
-    setBusy(true); setError(''); setNotice('')
+    const snapshot: RouteRequestSnapshot = { origin: from, destination: to, mode, preference,
+      key: routeRequestKey(from, to, mode, preference) }
+    const version = ++requestVersion.current
+    setCalculation(null); setSelectedRouteId(null); setBusy(true); setError(''); setNotice('')
     try {
-      const result = await api<Calculation>('/api/routes/calculate', token, {
+      const result = await api<Omit<Calculation, 'request'>>('/api/routes/calculate', token, {
         method: 'POST', body: JSON.stringify({ origin: { latitude: from.latitude, longitude: from.longitude }, destination: { latitude: to.latitude, longitude: to.longitude }, mode, preference }),
       })
-      setCalculation(result)
+      if (version !== requestVersion.current || snapshot.key !== currentPlannerKeyRef.current) return
+      setCalculation({ ...result, request: snapshot })
       setSelectedRouteId(result.alternatives[0]?.alternativeId ?? null)
       setNotice(result.alternatives.length ? 'Route alternatives are ready' : 'No routes were returned for these locations')
       void loadAccountData()
-    } catch (cause) { setError(cause instanceof Error ? cause.message : 'CleanRoute could not calculate routes right now. Please try again.') }
-    finally { setBusy(false) }
+    } catch (cause) {
+      if (version === requestVersion.current) {
+        setCalculation(null); setSelectedRouteId(null)
+        setError(cause instanceof Error ? cause.message : 'CleanRoute could not calculate routes right now. Please try again.')
+      }
+    } finally { if (version === requestVersion.current) setBusy(false) }
   }
 
   async function saveRoute(alternative: Alternative) {
-    if (!token || !origin.selected || !destination.selected) return
+    if (!token || !calculation || calculation.request.key !== currentPlannerKeyRef.current) {
+      setError('This route result is no longer current. Calculate the edited journey before saving it.')
+      return
+    }
+    const request = calculation.request
     setBusy(true); setError(''); setNotice('')
     try {
       await api('/api/routes/save', token, { method: 'POST', body: JSON.stringify({
-        originName: origin.selected.displayName, originLatitude: origin.selected.latitude, originLongitude: origin.selected.longitude,
-        destinationName: destination.selected.displayName, destinationLatitude: destination.selected.latitude, destinationLongitude: destination.selected.longitude,
-        geometryPolyline: JSON.stringify(alternative.geometry ?? []), travelMode: mode, routePreference: preference,
+        originName: request.origin.displayName, originLatitude: request.origin.latitude, originLongitude: request.origin.longitude,
+        destinationName: request.destination.displayName, destinationLatitude: request.destination.latitude, destinationLongitude: request.destination.longitude,
+        geometryPolyline: JSON.stringify(alternative.geometry ?? []), travelMode: request.mode, routePreference: request.preference,
         pollutionScore: alternative.expectedPollutionExposure, estimatedTravelTimeSeconds: alternative.durationSeconds, distanceMeters: alternative.distanceMeters,
       }) })
       await loadAccountData(); setNotice('Route saved to your account')
@@ -259,10 +294,16 @@ function App() {
     event.preventDefault()
     if (!token) return
     try {
-      const updated = await api<{ preferences: Preferences }>('/api/users/me/preferences', token, { method: 'PUT', body: JSON.stringify(preferences) })
+      const compatiblePreferences = { ...preferences, preferredTravelMode: preferences.routePreference === 'JOGGER' ? 'JOG' : preferences.routePreference === 'CYCLIST' ? 'CYCLE' : preferences.preferredTravelMode }
+      const updated = await api<{ preferences: Preferences }>('/api/users/me/preferences', token, { method: 'PUT', body: JSON.stringify(compatiblePreferences) })
       setPreferences(updated.preferences)
-      if (['FASTEST', 'CLEANEST', 'BALANCED'].includes(updated.preferences.routePreference)) setPreference(updated.preferences.routePreference)
-      setMode(['CAR', 'WALK', 'CYCLE'].includes(updated.preferences.preferredTravelMode) ? updated.preferences.preferredTravelMode : 'WALK')
+      const savedPreference = ['FASTEST', 'CLEANEST', 'BALANCED', 'JOGGER', 'CYCLIST'].includes(updated.preferences.routePreference)
+        ? updated.preferences.routePreference : 'BALANCED'
+      const savedMode = ['CAR', 'WALK', 'CYCLE', 'JOG'].includes(updated.preferences.preferredTravelMode)
+        ? updated.preferences.preferredTravelMode : 'WALK'
+      invalidateCalculation()
+      setPreference(savedPreference)
+      setMode(savedPreference === 'JOGGER' ? 'JOG' : savedPreference === 'CYCLIST' ? 'CYCLE' : savedMode)
       setNotice('Preferences saved')
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Could not save preferences') }
   }
@@ -279,6 +320,7 @@ function App() {
   function useSavedPlace(place: SavedPlace, target: 'origin' | 'destination') {
     const result: LocationSearchResult = { name: place.name, displayName: place.address || place.name, context: place.address || '', latitude: place.latitude, longitude: place.longitude, supportedArea: isInDemoCoverage(place) }
     const value = { query: result.displayName, selected: result }
+    invalidateCalculation()
     if (target === 'origin') setOrigin(value); else setDestination(value)
   }
 
@@ -289,19 +331,37 @@ function App() {
   return (
     <main className="app-shell">
       <header className="topbar">
-        <a className="brand" href="#top" aria-label="CleanRoute home"><span className="brand-mark">C</span><span>CleanRoute</span></a>
-        <nav className="topbar-nav" aria-label="Primary navigation"><a href="#planner">Plan</a><a href="#comparison">Compare</a>{token && <a href="#account">Account</a>}</nav>
-        <div className="topbar-actions"><span className="demo-label">PROVENANCE SHOWN · MODEL CAVEATS INCLUDED</span>{token ? <button className="button quiet" onClick={signOut}>Sign out</button> : <a className="button quiet" href="#planner">Sign in to plan</a>}</div>
+        <a className="brand" href="#top" aria-label="CleanRoute home" onClick={event => { event.preventDefault(); setActivePage('overview') }}><span className="brand-mark"><span>c</span><i aria-hidden="true"/></span><span>CleanRoute</span></a>
+        <nav className="topbar-nav" aria-label="Primary navigation">
+          <button className={activePage === 'overview' ? 'nav-item active' : 'nav-item'} aria-current={activePage === 'overview' ? 'page' : undefined} onClick={() => setActivePage('overview')}>Overview</button>
+          <button className={activePage === 'planner' ? 'nav-item active' : 'nav-item'} aria-current={activePage === 'planner' ? 'page' : undefined} onClick={() => setActivePage('planner')}>Plan a route</button>
+          <button className={activePage === 'activity' ? 'nav-item active' : 'nav-item'} aria-current={activePage === 'activity' ? 'page' : undefined} onClick={() => setActivePage('activity')}>My activity{unreadCount > 0 && <span className="nav-count">{unreadCount}</span>}</button>
+        </nav>
+        <div className="topbar-actions"><span className="demo-label">AIR QUALITY · ROUTE INSIGHTS</span>{token ? <button className="button quiet" onClick={signOut}>Sign out</button> : <button className="button quiet" onClick={() => setActivePage('planner')}>Sign in</button>}</div>
       </header>
 
-      <section className="hero" id="top">
-        <div><p className="eyebrow">POLLUTION-AWARE ROUTE PLANNING</p><h1>Choose a clearer way through the city.</h1><p>Compare route alternatives against the latest available air-quality observations and clearly labeled forecasts.</p></div>
-        <div className="hero-aside"><div className="hero-chip"><span className="status-dot"/> Transparent by design</div><span>Compare time, distance, and available environmental context.</span></div>
-      </section>
+      {activePage === 'overview' && <section className="hero" id="top">
+        <div className="hero-copy"><p className="eyebrow">A BETTER WAY TO GET THERE</p><h1>Take the route that lets you <em>breathe easier.</em></h1><p>See the air around your journey. Compare practical routes by travel time and modeled pollution exposure.</p><button className="button primary hero-action" onClick={() => setActivePage('planner')}>Plan a cleaner route <span aria-hidden="true">↗</span></button><div className="hero-trust"><span><i/> 15-minute air quality updates</span><span><i/> Clear forecast confidence</span></div></div>
+        <div className="hero-art" aria-label="Illustration of a city park with a clean route winding through the neighborhood" role="img">
+          <div className="art-sun"/><div className="art-cloud cloud-one"/><div className="art-cloud cloud-two"/>
+          <svg viewBox="0 0 620 370" role="presentation" aria-hidden="true" preserveAspectRatio="xMidYMid meet">
+            <path className="art-hill hill-back" d="M0 238 Q130 174 255 236 T620 208 V370 H0Z"/><path className="art-hill hill-front" d="M0 292 Q120 225 249 286 T620 258 V370 H0Z"/>
+            <g className="art-buildings"><path d="M52 156h58v138H52zM120 122h76v177h-76zM207 174h53v121h-53zM398 142h73v151h-73zM484 108h74v189h-74zM568 173h36v119h-36z"/><path d="M69 174h9v12h-9zm23 0h9v12h-9zm-23 27h9v12h-9zm23 0h9v12h-9zM140 143h10v13h-10zm25 0h10v13h-10zm-25 30h10v13h-10zm25 0h10v13h-10zm-25 30h10v13h-10zm25 0h10v13h-10zM418 161h10v13h-10zm27 0h10v13h-10zm-27 28h10v13h-10zm27 0h10v13h-10zM504 128h10v13h-10zm28 0h10v13h-10zm-28 29h10v13h-10zm28 0h10v13h-10zm-28 29h10v13h-10zm28 0h10v13h-10z"/></g>
+            <path className="art-road" d="M40 365 Q136 329 198 344 T323 322 Q362 312 342 281 T385 241 Q424 212 388 190 T410 152"/>
+            <path className="art-route" d="M40 365 Q136 329 198 344 T323 322 Q362 312 342 281 T385 241 Q424 212 388 190 T410 152"/>
+            <g className="art-tree tree-a"><circle cx="282" cy="264" r="29"/><circle cx="258" cy="280" r="20"/><path d="M278 281v43"/></g><g className="art-tree tree-b"><circle cx="460" cy="266" r="34"/><circle cx="490" cy="278" r="21"/><path d="M463 284v44"/></g>
+            <g className="art-pin"><circle cx="410" cy="151" r="19"/><circle cx="410" cy="151" r="6"/><path d="M410 171v26"/></g>
+          </svg>
+          <div className="art-label label-air"><span className="air-pulse"/><div><small>LOCAL AIR QUALITY</small><strong>Live city view</strong></div></div>
+          <div className="art-label label-route"><span className="route-swatch"/><div><small>YOUR ROUTE</small><strong>Cleaner way ahead</strong></div></div>
+          <span className="art-credit">Illustrative city view · route geometry comes from your routing provider</span>
+        </div>
+      </section>}
 
       {(error || notice) && <div className={error ? 'banner error-banner' : 'banner success-banner'} role={error ? 'alert' : 'status'}>{error || notice}<button onClick={() => { setError(''); setNotice('') }} aria-label="Dismiss">×</button></div>}
 
-      <section className="dashboard-grid conditions-grid" aria-label="Current conditions">
+      {activePage === 'overview' && <section className="overview-page page-enter">
+      <div className="dashboard-grid conditions-grid" aria-label="Current conditions">
         <article className="panel current-panel">
           <div className="panel-heading"><div><p className="eyebrow">CURRENT AIR QUALITY</p><h2>Central Delhi</h2></div><span className={current?.stale ? 'pill stale' : 'pill'}>{current?.stale ? 'Stale' : 'Latest'}</span></div>
           {loading ? <p className="placeholder">Loading latest observation…</p> : current ? <div className="aqi-reading"><strong>{current.aqi ?? '—'}</strong><span>AQI index</span><small>{current.pm25 == null ? 'PM2.5 unavailable' : `PM2.5 ${current.pm25.toFixed(1)} µg/m³`}</small></div> : <p className="placeholder">No current observation is available.</p>}
@@ -310,29 +370,32 @@ function App() {
         <article className="panel forecast-panel">
           <div className="panel-heading"><div><p className="eyebrow">NEXT 2 HOURS</p><h2>Observed and forecast AQI</h2></div><button className="button quiet" onClick={() => void loadEnvironment()} disabled={loading}>Refresh</button></div>
           <div className="chart-wrap">{loading ? <p className="placeholder">Loading observations and forecast…</p> : chart.length ? <ResponsiveContainer width="100%" height="100%"><LineChart data={chart} margin={{ top: 8, right: 12, left: -15, bottom: 5 }}>
-            <CartesianGrid stroke="#e9eee8" strokeDasharray="3 3"/><XAxis dataKey="time" tickFormatter={value => new Date(value).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} minTickGap={28}/><YAxis width={42}/><ChartTooltip labelFormatter={value => new Date(String(value)).toLocaleString()}/><Legend/>
-            <Line type="monotone" dataKey="observedAqi" name="Observed AQI" stroke="#2f7d57" strokeWidth={2} dot={false} connectNulls={false}/><Line type="monotone" dataKey="forecastAqi" name="Predicted AQI" stroke="#d18a24" strokeWidth={2} strokeDasharray="6 4" dot={{ r: 3 }} connectNulls={false}/>
+            <CartesianGrid stroke="#e3e9e6" strokeDasharray="3 3"/><XAxis dataKey="time" tickFormatter={value => new Date(value).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} minTickGap={28}/><YAxis width={42}/><ChartTooltip labelFormatter={value => new Date(String(value)).toLocaleString()}/><Legend/>
+            <Line type="monotone" dataKey="observedAqi" name="Observed AQI" stroke="#087d79" strokeWidth={2.5} dot={false} connectNulls={false}/><Line type="monotone" dataKey="forecastAqi" name="Predicted AQI" stroke="#bd622b" strokeWidth={2.5} strokeDasharray="6 4" dot={{ r: 3 }} connectNulls={false}/>
           </LineChart></ResponsiveContainer> : <p className="empty-state">No chart data is available for this cell.</p>}</div>
           <div className="chart-legend-note"><span><i className="legend-observed"/> Observed</span><span><i className="legend-predicted"/> Predicted</span><small>{forecasts.length ? `${forecasts.length} predictions · ${forecasts[0].forecast.quality.toLowerCase()} quality` : 'Forecast baseline'} · not validated health guidance</small></div>
           <p className="provenance">Current AQI and forecast are city-cell context, not a per-route AQI measurement.</p>
         </article>
-      </section>
+      </div>
+      <div className="overview-note"><span className="note-icon">i</span><p><strong>Data with context.</strong> Air-quality readings are tied to monitored cells; route exposure uses available samples and is not health guidance.</p><button className="text-button" onClick={() => setActivePage('planner')}>Explore routes <span aria-hidden="true">→</span></button></div>
+      </section>}
 
+      {activePage === 'planner' && <div className="planner-page page-enter"><div className="page-heading"><div><p className="eyebrow">YOUR JOURNEY</p><h1>Plan a route</h1><p>Choose where you’re going. We’ll show the time and air-quality context for each option.</p></div><span className="pill page-pill">Pollution-aware planning</span></div>
       <section className="planning-grid" id="planner" aria-label="Route planning">
         <article className="panel planner-panel">
           <div className="panel-heading"><div><p className="eyebrow">PLAN A JOURNEY</p><h2>From here to there</h2></div><span className="pill">{token ? 'Ready to plan' : 'Sign-in required'}</span></div>
           <form className="route-form journey-form" onSubmit={calculateRoute}>
             <div className="journey-locations">
-              <LocationSearchField label="From" placeholder="Search starting point" value={origin} provider={locationProvider} onChange={setOrigin}/>
-              <button className="swap-button" type="button" aria-label="Swap origin and destination" onClick={() => { setOrigin(destination); setDestination(origin) }}>⇅</button>
-              <LocationSearchField label="To" placeholder="Search destination" value={destination} provider={locationProvider} onChange={setDestination}/>
+              <LocationSearchField label="From" placeholder="Search starting point" value={origin} provider={locationProvider} onChange={value => { invalidateCalculation(); setOrigin(value) }}/>
+              <button className="swap-button" type="button" aria-label="Swap origin and destination" onClick={() => { invalidateCalculation(); setOrigin(destination); setDestination(origin) }}>⇅</button>
+              <LocationSearchField label="To" placeholder="Search destination" value={destination} provider={locationProvider} onChange={value => { invalidateCalculation(); setDestination(value) }}/>
             </div>
             {(selectedOrigin || selectedDestination) && (!selectedOrigin?.supportedArea || !selectedDestination?.supportedArea) && <p className="provenance" role="status">Global place search works, but environmental coverage depends on the configured provider and route response. No exposure value will be invented when coverage is unavailable.</p>}
-            <fieldset className="choice-field"><legend>Travel mode</legend><div className="segmented-control" role="group" aria-label="Travel mode">
-              {travelModes.map(item => <button key={item.value} type="button" className={mode === item.value ? 'segment active' : 'segment'} aria-pressed={mode === item.value} onClick={() => setMode(item.value)}><span>{item.icon}</span>{item.label}</button>)}
+            <fieldset className="choice-field"><legend>Travel mode</legend><div className="segmented-control travel-mode-segments" role="group" aria-label="Travel mode">
+              {travelModes.map(item => <button key={item.value} type="button" className={mode === item.value ? 'segment active' : 'segment'} aria-pressed={mode === item.value} onClick={() => { invalidateCalculation(); setMode(item.value); if (preference === 'JOGGER' && item.value !== 'JOG' || preference === 'CYCLIST' && item.value !== 'CYCLE') setPreference('BALANCED') }}><span>{item.icon}</span>{item.label}</button>)}
             </div><p className="choice-description">Walking/cycling requests are checked against the configured OSRM profile; unsupported profiles are rejected instead of falling back to a car route.</p></fieldset>
             <fieldset className="choice-field"><legend>Route preference</legend><div className="segmented-control preference-segments" role="group" aria-label="Route preference">
-              {rankingModes.map(item => <button key={item.value} type="button" className={preference === item.value ? 'segment active' : 'segment'} aria-pressed={preference === item.value} onClick={() => setPreference(item.value)}><span>{item.icon}</span>{item.title}</button>)}
+              {rankingModes.map(item => <button key={item.value} type="button" className={preference === item.value ? 'segment active' : 'segment'} aria-pressed={preference === item.value} onClick={() => { invalidateCalculation(); setPreference(item.value); if (item.value === 'JOGGER') setMode('JOG'); if (item.value === 'CYCLIST') setMode('CYCLE') }}><span>{item.icon}</span>{item.title}</button>)}
             </div><p className="choice-description">{rankingModes.find(item => item.value === preference)?.detail}</p></fieldset>
             <div className="place-actions planner-place-actions">
               <button className="button quiet" type="button" disabled={!token || !selectedOrigin || busy} onClick={() => selectedOrigin && void savePlace(selectedOrigin.name, selectedOrigin)}>Save origin place</button>
@@ -363,7 +426,7 @@ function App() {
               if (!geometry.length) return null
               const selected = route.alternativeId === activeRoute?.alternativeId
                return <Polyline key={route.alternativeId} positions={geometry.map(point => [point.latitude, point.longitude] as [number, number])}
-                  pathOptions={{ color: selected ? '#207b50' : '#849b8a', weight: selected ? 7 : 4, opacity: selected ? .95 : .32 }}><Tooltip>{routeCoverage(route) === 'unavailable' ? `${route.alternativeId} · environmental data unavailable` : `${route.alternativeId} · modeled exposure ${displayValue(route.expectedPollutionExposure, 1)}`}</Tooltip></Polyline>
+                  pathOptions={{ color: selected ? '#087d79' : '#738b84', weight: selected ? 7 : 4, opacity: selected ? .98 : .48 }}><Tooltip>{routeCoverage(route) === 'unavailable' ? `${route.alternativeId} · environmental data unavailable` : `${route.alternativeId} · modeled exposure ${displayValue(route.expectedPollutionExposure, 1)}`}</Tooltip></Polyline>
             })}
             <FitMap route={activeRoute} origin={selectedOrigin} destination={selectedDestination}/>
           </MapContainer>{displayedRoutes.length > 0 && !displayedRoutes.some(route => validGeometry(route).length) && <div className="map-fallback" role="status">Route geometry is unavailable. Route details are shown below.</div>}</div>
@@ -390,32 +453,41 @@ function App() {
         })}</div> : <div className="empty-panel"><strong>Plan a cleaner journey</strong><p>Enter your starting point and destination to compare routes using travel time and pollution exposure.</p>{calculation && !displayedRoutes.length && <span>No route alternatives were returned. Try different locations or check again later.</span>}</div>}
         {calculation?.limitation && <p className="provenance">{calculation.limitation}</p>}
       </section>
+      </div>}
 
-       {token && <section className="account-grid" id="account" aria-label="Account dashboard">
+       {activePage === 'activity' && <section className="activity-page page-enter" id="account" aria-label="Account dashboard">
+       <div className="page-heading"><div><p className="eyebrow">YOUR CLEANROUTE</p><h1>Your activity</h1><p>Keep your regular places, routes, and air-quality alerts together.</p></div>{token && <span className="pill page-pill">{unreadCount} unread alerts</span>}</div>
+       {token ? <div className="account-grid">
         <article className="panel saved-panel"><div className="panel-heading"><div><p className="eyebrow">YOUR PLACES</p><h2>Saved places</h2></div><span className="pill">{savedPlaces.length}</span></div>
           {savedPlaces.length ? <ul className="saved-list">{savedPlaces.map(place => <li key={place.id}><div><strong>{place.name}</strong><span>{place.address || `${place.latitude.toFixed(4)}, ${place.longitude.toFixed(4)}`}</span><div className="place-actions"><button className="text-button" onClick={() => useSavedPlace(place, 'origin')}>Use as origin</button><button className="text-button" onClick={() => useSavedPlace(place, 'destination')}>Use as destination</button></div></div><button className="text-button danger-text" onClick={() => void removeSavedPlace(place.id)}>Remove</button></li>)}</ul> : <p className="empty-state">Save an origin or destination to reuse it.</p>}
         </article>
         <article className="panel saved-panel"><div className="panel-heading"><div><p className="eyebrow">YOUR ROUTES</p><h2>Saved routes</h2></div><span className="pill">{savedRoutes.length} saved</span></div>
-          {savedRoutes.length ? <ul className="saved-list">{savedRoutes.map(route => <li key={route.id}><div><strong>{route.originName} → {route.destinationName}</strong><span>{route.travelMode} · {route.routePreference}</span></div><button className="text-button danger-text" onClick={() => void removeSavedRoute(route.id)}>Remove</button></li>)}</ul> : <p className="empty-state">Saved routes will show up here.</p>}
+          {savedRoutes.length ? <ul className="saved-list">{savedRoutes.map(route => <li key={route.id}><div><strong>{route.originName} → {route.destinationName}</strong><span>{route.mode} · {route.preference}</span></div><button className="text-button danger-text" onClick={() => void removeSavedRoute(route.id)}>Remove</button></li>)}</ul> : <p className="empty-state">Saved routes will show up here.</p>}
         </article>
         <article className="panel saved-panel"><div className="panel-heading"><div><p className="eyebrow">RECENT CALCULATIONS</p><h2>Route history</h2></div><span className="pill">{routeHistory.length}</span></div>
-          {routeHistory.length ? <ul className="saved-list">{routeHistory.slice(0, 10).map(route => <li key={route.id}><div><strong>{route.originName} → {route.destinationName}</strong><span>{route.travelMode} · {route.routePreference} · {route.distanceMeters == null ? 'Data unavailable' : `${(route.distanceMeters / 1000).toFixed(1)} km`}</span></div></li>)}</ul> : <p className="empty-state">Calculated routes will appear here.</p>}
+          {routeHistory.length ? <ul className="saved-list">{routeHistory.slice(0, 10).map(route => <li key={route.id}><div><strong>{route.originName} → {route.destinationName}</strong><span>{route.mode} · {route.preference} · {route.distanceMeters == null ? 'Data unavailable' : `${(route.distanceMeters / 1000).toFixed(1)} km`}</span></div></li>)}</ul> : <p className="empty-state">Calculated routes will appear here.</p>}
         </article>
         <article className="panel saved-panel"><div className="panel-heading"><div><p className="eyebrow">ALERTS</p><h2>Notifications</h2></div><span className="pill">{unreadCount} unread</span></div>
           {notifications.length ? <ul className="saved-list">{notifications.map(item => <li key={item.id}><div><strong>{item.title}</strong><span>{item.message}</span></div>{!item.readAt && <button className="text-button" onClick={() => void markNotificationRead(item.id)}>Mark read</button>}</li>)}</ul> : <p className="empty-state">No alerts yet. Forecast and route checks can create in-app alerts.</p>}
         </article>
         <article className="panel saved-panel preferences-panel"><div className="panel-heading"><div><p className="eyebrow">ACCOUNT SETTINGS</p><h2>Preferences</h2></div></div>
           <form className="route-form" onSubmit={savePreferences}>
-            <label>Preferred route ranking<select value={preferences.routePreference} onChange={event => setPreferences({ ...preferences, routePreference: event.target.value })}>{['FASTEST', 'CLEANEST', 'BALANCED', 'JOGGER', 'CYCLIST'].map(value => <option key={value}>{value}</option>)}</select></label>
-            <label>Preferred travel mode<select value={preferences.preferredTravelMode} onChange={event => setPreferences({ ...preferences, preferredTravelMode: event.target.value })}>{['WALK', 'CAR', 'CYCLE', 'JOG'].map(value => <option key={value}>{value}</option>)}</select></label>
+            <label>Preferred route ranking<select value={preferences.routePreference} onChange={event => { const routePreference = event.target.value; setPreferences({ ...preferences, routePreference, preferredTravelMode: routePreference === 'JOGGER' ? 'JOG' : routePreference === 'CYCLIST' ? 'CYCLE' : preferences.preferredTravelMode }) }}>{['FASTEST', 'CLEANEST', 'BALANCED', 'JOGGER', 'CYCLIST'].map(value => <option key={value}>{value}</option>)}</select></label>
+            <label>Preferred travel mode<select value={preferences.preferredTravelMode} onChange={event => {
+              const preferredTravelMode = event.target.value
+              const hasModeConflict = preferences.routePreference === 'JOGGER' && preferredTravelMode !== 'JOG'
+                || preferences.routePreference === 'CYCLIST' && preferredTravelMode !== 'CYCLE'
+              setPreferences({ ...preferences, preferredTravelMode, routePreference: hasModeConflict ? 'BALANCED' : preferences.routePreference })
+            }}>{['WALK', 'CAR', 'CYCLE', 'JOG'].map(value => <option key={value}>{value}</option>)}</select></label>
             <label className="check-label"><input type="checkbox" checked={preferences.notificationsEnabled} onChange={event => setPreferences({ ...preferences, notificationsEnabled: event.target.checked })}/> Enable in-app notifications</label>
             <label>Pollution sensitivity · {preferences.pollutionSensitivity}<input type="range" min="1" max="5" value={preferences.pollutionSensitivity} onChange={event => setPreferences({ ...preferences, pollutionSensitivity: Number(event.target.value) })}/></label>
             <button className="button primary" type="submit">Save preferences</button>
           </form>
         </article>
+      </div> : <section className="panel activity-signin"><div className="activity-signin-mark">↗</div><p className="eyebrow">YOUR ROUTES, IN ONE PLACE</p><h2>Sign in to see your activity</h2><p>Save places, keep useful routes, and check your recent air-quality alerts.</p><button className="button primary" onClick={() => setActivePage('planner')}>Sign in or create account</button></section>}
       </section>}
 
-      <footer className="app-footer"><span>CleanRoute</span><span>Environmental values are labeled by source and remain comparative, not health guidance.</span></footer>
+      <footer className="app-footer"><span>CleanRoute <i>·</i> Move well. Breathe easier.</span><span>Environmental values are comparative estimates, not health guidance.</span></footer>
     </main>
   )
 }

@@ -11,7 +11,8 @@ import java.util.UUID;
 public final class RoutePlanningModels {
     private RoutePlanningModels() {}
     public record RouteComparison(int availableRoutes, int rank, Double exposureDifferencePercent,
-                                  Integer extraDurationSeconds, Double extraDistanceMeters) {}
+                                  Integer extraDurationSeconds, Double extraDistanceMeters,
+                                  String exposureReferenceId, String timeReferenceId) {}
     public record SelectionReason(String type, String headline, String summary, RouteComparison comparison,
                                   List<String> factors) {}
     public record CalculationRequest(Coordinate origin, Coordinate destination, TravelMode mode,
@@ -22,14 +23,26 @@ public final class RoutePlanningModels {
             double preferenceScore, Map<String, Double> scoreComponents, List<String> reasons,
             String environmentalProvider, String environmentalCoverage, String observationSource, int sampledPointCount,
             int availableSampleCount, int unavailableSampleCount, Double environmentalCoveragePercent,
-            SelectionReason selectionReason) {
+            SelectionReason selectionReason, EnvironmentalQuality environmentalQuality) {
+        public RouteAlternative(String alternativeId, int rank, String provider, boolean generated,
+                List<Coordinate> geometry, double distanceMeters, int durationSeconds,
+                Double expectedPollutionExposure, Integer forecastQualityScore, double preferenceScore,
+                Map<String, Double> scoreComponents, List<String> reasons, String environmentalProvider,
+                String environmentalCoverage, String observationSource, int sampledPointCount,
+                int availableSampleCount, int unavailableSampleCount, Double environmentalCoveragePercent,
+                SelectionReason selectionReason) {
+            this(alternativeId, rank, provider, generated, geometry, distanceMeters, durationSeconds,
+                    expectedPollutionExposure, forecastQualityScore, preferenceScore, scoreComponents, reasons,
+                    environmentalProvider, environmentalCoverage, observationSource, sampledPointCount,
+                    availableSampleCount, unavailableSampleCount, environmentalCoveragePercent, selectionReason, null);
+        }
         public RouteAlternative(String alternativeId, int rank, String provider, boolean generated,
                 List<Coordinate> geometry, double distanceMeters, int durationSeconds,
                 double expectedPollutionExposure, int forecastQualityScore, double preferenceScore,
                 Map<String, Double> scoreComponents, List<String> reasons) {
             this(alternativeId, rank, provider, generated, geometry, distanceMeters, durationSeconds,
                     expectedPollutionExposure, forecastQualityScore, preferenceScore, scoreComponents, reasons,
-                    "mock-demo-aqi", "fixed-cell", "historical-forecast", 0, 0, 0, null, null);
+                    "mock-demo-aqi", "fixed-cell", "historical-forecast", 0, 0, 0, null, null, null);
         }
     }
     public record CalculationResult(UUID id, Instant departureAt, TravelMode mode, RoutePreference preference,

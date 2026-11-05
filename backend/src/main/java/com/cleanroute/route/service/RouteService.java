@@ -24,6 +24,8 @@ import com.cleanroute.route.domain.RoutePlanningModels.CalculationResult;
 import com.cleanroute.route.domain.RoutePlanningModels.RouteAlternative;
 import com.cleanroute.route.domain.RoutePlanningModels.RouteComparison;
 import com.cleanroute.route.domain.RoutePlanningModels.SelectionReason;
+import com.cleanroute.route.domain.EnvironmentalQuality;
+import com.cleanroute.observation.domain.ObservationModels;
 import com.cleanroute.route.config.RouteSuitabilityProperties;
 import com.cleanroute.route.repository.RouteCalculationRepository;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -43,11 +45,14 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.Locale;
+import java.util.Optional;
+import java.util.Set;
 
 @Service
 public class RouteService {
-    private static final String MOCK_LIMITATION = "Generated mock alternatives and nearest fixed demo-cell forecasts; exposure is a comparative baseline, not health guidance.";
-    private static final String REAL_ROUTE_LIMITATION = "Road geometry and travel estimates come from the configured routing provider; environmental exposure is calculated from available coordinate samples and remains a comparative model, not health guidance.";
+    private static final String EXPOSURE_LIMITATION = " Exposure is a distance-weighted mean pollutant burden, not cumulative dose or health guidance. Sample availability is not model accuracy; coarse model grids and fixed demo cells are not street-level measurements.";
+    private static final String MOCK_LIMITATION = "Generated mock route geometry; environmental provenance is reported separately." + EXPOSURE_LIMITATION;
+    private static final String REAL_ROUTE_LIMITATION = "Road geometry and travel estimates come from the configured routing provider." + EXPOSURE_LIMITATION;
     private final RoutingProvider routing;
     private final ObservationRepository observations;
     private final PollutionForecastService forecasts;
@@ -101,8 +106,6 @@ public class RouteService {
         Instant departure = request.departureAt() == null ? ceilQuarter(Instant.now().plusSeconds(1)) : request.departureAt();
         if (!departure.isAfter(Instant.now())) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Departure time must be in the future");
         List<GeographicCell> cells = observations.cells();
-        boolean coordinateLookup = environmental != null && environmental.supportsCoordinateLookup();
-        if (cells.isEmpty() && !coordinateLookup) throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "No geographic cells are configured");
         List<RoutePath> paths;
         try {
             paths = routing.alternatives(new RoutingRequest(request.origin(), request.destination(), request.mode()));
@@ -115,18 +118,16 @@ public class RouteService {
         if (paths == null || paths.isEmpty() || paths.size() > 10 || paths.stream().anyMatch(java.util.Objects::isNull))
             throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "Routing provider returned no usable alternatives");
         List<Candidate> candidates = new ArrayList<>();
-        Map<String, PollutionForecast> forecastCache = new HashMap<>();
+        Map<String, Optional<PollutionForecast>> forecastCache = new HashMap<>();
         for (RoutePath path : paths) candidates.add(exposure(path, departure, cells, forecastCache));
+        boolean comparable = EnvironmentalQuality.comparable(candidates.stream().map(Candidate::evidence).toList());
         double maxDuration = candidates.stream().mapToInt(c -> c.path().estimatedDurationSeconds()).max().orElse(1);
-        List<Ranked> ranked = candidates.stream().map(c -> rank(c, request.preference(), maxDuration))
-                .sorted(Comparator.comparingDouble(Ranked::score).reversed().thenComparing(r -> r.candidate().path().alternativeId())).toList();
+        List<Ranked> ranked = candidates.stream().map(c -> rank(c, request.preference(), maxDuration, comparable))
+                .sorted(Comparator.comparingDouble(Ranked::score).reversed()
+                        .thenComparingInt(r -> r.candidate().path().estimatedDurationSeconds())
+                        .thenComparing(r -> r.candidate().path().alternativeId())).toList();
         List<RouteAlternative> results = new ArrayList<>();
         Candidate fastest = candidates.stream().min(Comparator.comparingInt(c -> c.path().estimatedDurationSeconds())).orElseThrow();
-        Candidate cleanest = candidates.stream().filter(c -> c.exposure() != null)
-                .min(Comparator.comparingDouble(Candidate::exposure)).orElse(null);
-        boolean sufficientCleanestCoverage = cleanest != null && cleanest.coveragePercent() != null
-                && cleanest.coveragePercent() >= 50.0
-                && candidates.stream().filter(c -> c.exposure() != null).count() >= 2;
         for (int i = 0; i < ranked.size(); i++) {
             Ranked r = ranked.get(i); Candidate c = r.candidate();
             Map<String, Double> components = components(r, c, request.preference());
@@ -134,7 +135,7 @@ public class RouteService {
                     c.path().geometry(), c.path().distanceMeters(), c.path().estimatedDurationSeconds(), c.exposure(),
                     c.quality(), round(r.score()), components, reasons(request.preference(), r, c), c.environmentalProvider(), c.coverage(),
                     c.source(), c.sampled(), c.available(), c.unavailable(), c.coveragePercent(), explanation(request.preference(), i + 1,
-                    candidates.size(), c, fastest, cleanest, sufficientCleanestCoverage, ranked, candidates)));
+                    candidates.size(), c, fastest, comparable, r, candidates), c.evidence()));
         }
         boolean generated = paths.stream().anyMatch(RoutePath::generated);
         CalculationResult result = new CalculationResult(UUID.randomUUID(), departure, request.mode(), request.preference(),
@@ -157,8 +158,126 @@ public class RouteService {
         return calculations.find(id, userId).orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Route calculation not found"));
     }
 
+    private final class ExposureSummary {
+        private final RoutePath path;
+        private final List<RouteSampler.Sample> samples;
+        private final String provider;
+        private final String source;
+        private final boolean fixedCell;
+        private final List<String> requiredPollutants;
+        private final Map<String, Integer> issues = new java.util.LinkedHashMap<>();
+        private final Set<String> missingPollutants = new java.util.TreeSet<>();
+        private final Set<String> measurementBases = new java.util.TreeSet<>();
+        private double totalWeight;
+        private double availableWeight;
+        private double weightedBurden;
+        private double congestionWeighted;
+        private double trafficWeight;
+        private int available;
+        private double pollutantWeight;
+        private int comparisonSamples;
+        private int quality = 100;
+        private boolean hasQuality;
+        private boolean generated;
+        private Instant earliest;
+        private Instant latest;
+
+        private ExposureSummary(RoutePath path, List<RouteSampler.Sample> samples, boolean fixedCell) {
+            this.path = path;
+            this.samples = samples;
+            this.fixedCell = fixedCell;
+            this.provider = environmental == null ? "fixed-cell" : environmental.providerId();
+            this.source = fixedCell ? "historical-forecast" : provider;
+            List<String> required = environmental == null ? List.of("PM2.5", "PM10", "NO2", "O3")
+                    : environmental.requiredComparisonPollutants();
+            this.requiredPollutants = required == null || required.isEmpty() ? ObservationModels.POLLUTANTS : required;
+            for (int i = 0; i < samples.size(); i++) totalWeight += sampleWeight(path, samples, i);
+        }
+
+        private void add(int index, PollutionObservation observation, Integer qualityScore,
+                         Double congestion, List<String> responseIssues) {
+            if (responseIssues != null) responseIssues.forEach(this::issue);
+            if (observation == null) {
+                unavailable(List.of("MISSING_MEASUREMENTS"));
+                return;
+            }
+            try {
+                var assessment = engine.assess(observation);
+                List<String> present = requiredPollutants.stream()
+                        .filter(p -> pollutantValue(observation, p) != null).toList();
+                requiredPollutants.stream().filter(p -> !present.contains(p)).forEach(missingPollutants::add);
+                double weight = sampleWeight(path, samples, index);
+                weightedBurden += assessment.burdenScore() * weight;
+                pollutantWeight += weight * present.size() / requiredPollutants.size();
+                availableWeight += weight;
+                available++;
+                if (present.containsAll(requiredPollutants) && !assessment.usedAqiFallback()) comparisonSamples++;
+                measurementBases.add(observation.provider() + "|" + observation.generated() + "|" + String.join(",", present));
+                generated |= observation.generated();
+                if (qualityScore != null) {
+                    quality = Math.min(quality, qualityScore);
+                    hasQuality = true;
+                }
+                if (congestion != null && Double.isFinite(congestion) && congestion >= 1 && congestion <= 5) {
+                    congestionWeighted += congestion * weight;
+                    trafficWeight += weight;
+                }
+                if (observation.observedAt() != null) {
+                    earliest = earliest == null || observation.observedAt().isBefore(earliest) ? observation.observedAt() : earliest;
+                    latest = latest == null || observation.observedAt().isAfter(latest) ? observation.observedAt() : latest;
+                }
+            } catch (PollutionEngine.InsufficientPollutionDataException | IllegalArgumentException invalid) {
+                unavailable(List.of("INVALID_OR_MISSING_MEASUREMENTS"));
+            }
+        }
+
+        private void unavailable(List<String> reasons) {
+            for (String reason : reasons) issue(reason);
+            missingPollutants.addAll(ObservationModels.POLLUTANTS);
+        }
+
+        private void issue(String reason) { if (reason != null && !reason.isBlank()) issues.merge(reason, 1, Integer::sum); }
+
+        private Candidate result() {
+            double distanceCoverage = totalWeight == 0 ? 0 : round(availableWeight * 100.0 / totalWeight);
+            double pollutantCoverage = totalWeight == 0 ? 0 : round(pollutantWeight * 100.0 / totalWeight);
+            boolean comparisonEligible = samples.size() > 0 && available == samples.size()
+                    && comparisonSamples == samples.size() && measurementBases.size() == 1 && issues.isEmpty();
+            boolean complete = available == samples.size() && missingPollutants.isEmpty() && issues.isEmpty();
+            String coverage = available == 0 ? "unavailable" : complete ? (fixedCell ? "fixed-cell" : "complete") : "partial";
+            EnvironmentalQuality evidence = new EnvironmentalQuality(distanceCoverage, pollutantCoverage,
+                    List.copyOf(missingPollutants), issues, fixedCell ? "HISTORICAL_BASELINE" : "MODEL_FORECAST", generated, comparisonEligible,
+                    comparisonEligible ? source + "|" + measurementBases.iterator().next() : null, earliest, latest);
+            return new Candidate(path, availableWeight == 0 ? null : round(weightedBurden / availableWeight),
+                    hasQuality ? quality : null, trafficWeight == 0 ? null : congestionWeighted / trafficWeight,
+                    provider, coverage, source, samples.size(), available, samples.size() - available,
+                    round(available * 100.0 / samples.size()), evidence);
+        }
+    }
+
+    private static double sampleWeight(RoutePath path, List<RouteSampler.Sample> samples, int index) {
+        if (samples.size() == 2) return Math.max(1, path.distanceMeters() / 2.0);
+        if (index == 0) return Math.max(1, samples.get(1).distanceFromStartMeters() / 2.0);
+        if (index == samples.size() - 1)
+            return Math.max(1, (samples.get(index).distanceFromStartMeters() - samples.get(index - 1).distanceFromStartMeters()) / 2.0);
+        return Math.max(1, (samples.get(index + 1).distanceFromStartMeters()
+                - samples.get(index - 1).distanceFromStartMeters()) / 2.0);
+    }
+
+    private static Double pollutantValue(PollutionObservation observation, String pollutant) {
+        return switch (pollutant) {
+            case "PM2.5" -> observation.pm25();
+            case "PM10" -> observation.pm10();
+            case "NO2" -> observation.no2();
+            case "SO2" -> observation.so2();
+            case "CO" -> observation.co();
+            case "O3" -> observation.o3();
+            default -> null;
+        };
+    }
+
     private Candidate exposure(RoutePath path, Instant departure, List<GeographicCell> cells,
-                              Map<String, PollutionForecast> forecastCache) {
+                              Map<String, Optional<PollutionForecast>> forecastCache) {
         if (path.geometry() == null || path.geometry().size() < 2 || !Double.isFinite(path.distanceMeters())
                 || path.distanceMeters() <= 0 || path.estimatedDurationSeconds() < 1
                 || path.geometry().size() > routingProperties.getMaxGeometryPoints())
@@ -168,8 +287,6 @@ public class RouteService {
                 || path.elevationGainMeters() != null && (!Double.isFinite(path.elevationGainMeters())
                 || path.elevationGainMeters() < 0))
             throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY, "Routing provider returned invalid suitability metadata");
-        double weighted = 0, weights = 0, congestionWeighted = 0, trafficWeights = 0;
-        int quality = 100;
         List<Coordinate> points = path.geometry();
         if (points.stream().anyMatch(p -> p == null || !Double.isFinite(p.latitude()) || p.latitude() < -90 || p.latitude() > 90
                 || !Double.isFinite(p.longitude()) || p.longitude() < -180 || p.longitude() > 180))
@@ -177,49 +294,27 @@ public class RouteService {
         if (environmental != null && environmental.supportsCoordinateLookup())
             return coordinateExposure(path, departure);
         List<RouteSampler.Sample> samples = RouteSampler.sample(points, environmentalProperties.getRouteSampleIntervalMeters());
-        int available = 0;
+        ExposureSummary summary = new ExposureSummary(path, samples, true);
+        double sampledDistance = samples.getLast().distanceFromStartMeters();
         for (int i = 0; i < samples.size(); i++) {
             RouteSampler.Sample sample = samples.get(i);
-            double length = i == 0 ? sample.distanceFromStartMeters() : sample.distanceFromStartMeters() - samples.get(i - 1).distanceFromStartMeters();
-            Coordinate midpoint = sample.coordinate();
-            GeographicCell cell = nearest(midpoint, cells);
+            GeographicCell cell = nearest(sample.coordinate(), cells);
+            if (cell == null) { summary.unavailable(List.of("OUTSIDE_FIXED_CELL_COVERAGE")); continue; }
             Instant target = ceilQuarter(departure.plusMillis((long)(path.estimatedDurationSeconds() * 1000.0
-                    * sample.distanceFromStartMeters() / Math.max(1, path.distanceMeters()))));
-            PollutionForecast forecast = forecastCache.computeIfAbsent(cell.cellId() + "|" + target,
-                    ignored -> forecasts.forecast(cell.cellId(), target));
+                    * sample.distanceFromStartMeters() / Math.max(1, sampledDistance))));
+            Optional<PollutionForecast> found = forecastCache.computeIfAbsent(cell.cellId() + "|" + target, ignored -> {
+                try { return Optional.ofNullable(forecasts.forecast(cell.cellId(), target)); }
+                catch (ResponseStatusException unavailable) { return Optional.empty(); }
+            });
+            if (found.isEmpty()) { summary.unavailable(List.of("FORECAST_UNAVAILABLE")); continue; }
+            PollutionForecast forecast = found.get();
             PollutionObservation observation = new PollutionObservation(cell.cellId(), forecast.targetAt(), forecast.aqi(),
                     forecast.pm25(), forecast.pm10(), forecast.no2(), forecast.so2(), forecast.co(), forecast.o3(),
                     forecast.provider(), forecast.sourceGenerated());
-            double burden;
-            try {
-                burden = engine.assess(observation).burdenScore();
-            } catch (PollutionEngine.InsufficientPollutionDataException ignored) {
-                continue;
-            }
-            double weight;
-            if (samples.size() == 2) weight = path.distanceMeters() / 2.0;
-            else if (i == 0) weight = samples.get(1).distanceFromStartMeters() / 2.0;
-            else if (i == samples.size() - 1) weight = (sample.distanceFromStartMeters()
-                    - samples.get(i - 1).distanceFromStartMeters()) / 2.0;
-            else weight = (samples.get(i + 1).distanceFromStartMeters()
-                    - samples.get(i - 1).distanceFromStartMeters()) / 2.0;
-            weight = Math.max(1, weight);
-            weighted += burden * weight; weights += weight;
-            available++;
-            quality = Math.min(quality, forecast.qualityScore());
             TrafficObservation traffic = observations.trafficAt(cell.cellId(), target).orElse(null);
-            if (traffic != null && traffic.congestionFactor() != null && Double.isFinite(traffic.congestionFactor())
-                    && traffic.congestionFactor() >= 0) {
-                congestionWeighted += traffic.congestionFactor() * weight;
-                trafficWeights += weight;
-            }
+            summary.add(i, observation, forecast.qualityScore(), traffic == null ? null : traffic.congestionFactor(), List.of());
         }
-        int unavailable = samples.size() - available;
-        String coverage = available == 0 ? "unavailable" : available == samples.size() ? "fixed-cell" : "partial";
-        String environmentalProvider = environmental == null ? "fixed-cell" : environmental.providerId();
-        return new Candidate(path, weights == 0 ? null : round(weighted / weights), weights == 0 ? null : quality,
-                trafficWeights == 0 ? null : congestionWeighted / trafficWeights, environmentalProvider, coverage, "historical-forecast",
-                samples.size(), available, unavailable, samples.isEmpty() ? null : round(available * 100.0 / samples.size()));
+        return summary.result();
     }
 
     private Candidate coordinateExposure(RoutePath path, Instant departure) {
@@ -228,44 +323,46 @@ public class RouteService {
         List<EnvironmentalCoordinateQuery> queries = samples.stream().map(sample -> new EnvironmentalCoordinateQuery(
                 sample.coordinate(), departure.plusMillis(Math.round(path.estimatedDurationSeconds() * 1000.0
                         * sample.distanceFromStartMeters() / Math.max(sampledRouteDistance, 1.0))))).toList();
+        ExposureSummary summary = new ExposureSummary(path, samples, false);
         List<EnvironmentalCoordinateResult> results;
         try { results = environmental.observationsAt(queries); }
         catch (ProviderFailureException failure) {
-            return new Candidate(path, null, null, null, environmental.providerId(), "unavailable", environmental.providerId(), samples.size(), 0, samples.size(), 0.0);
+            for (int i = 0; i < samples.size(); i++) summary.unavailable(List.of(failure.getType().name()));
+            return summary.result();
         }
-        if (results == null || results.size() != samples.size())
-            return new Candidate(path, null, null, null, environmental.providerId(), "unavailable", environmental.providerId(), samples.size(), 0, samples.size(), 0.0);
-        double weighted = 0, weights = 0; int available = 0;
+        if (results == null || results.size() != samples.size()) {
+            for (int i = 0; i < samples.size(); i++) summary.unavailable(List.of("INVALID_RESPONSE"));
+            return summary.result();
+        }
         for (int i = 0; i < results.size(); i++) {
             EnvironmentalCoordinateResult result = results.get(i);
-            if (result == null || result.observation() == null) continue;
-            try {
-                double burden = engine.assess(result.observation()).burdenScore();
-                double weight;
-                if (samples.size() == 2) weight = path.distanceMeters() / 2.0;
-                else if (i == 0) weight = samples.get(1).distanceFromStartMeters() / 2.0;
-                else if (i == samples.size() - 1) weight = (samples.get(i).distanceFromStartMeters()
-                        - samples.get(i - 1).distanceFromStartMeters()) / 2.0;
-                else weight = (samples.get(i + 1).distanceFromStartMeters()
-                        - samples.get(i - 1).distanceFromStartMeters()) / 2.0;
-                weight = Math.max(1, weight);
-                weighted += burden * weight; weights += weight; available++;
-            } catch (PollutionEngine.InsufficientPollutionDataException ignored) { }
+            if (result == null || !queries.get(i).equals(result.query())) {
+                summary.unavailable(List.of("QUERY_MISMATCH"));
+                continue;
+            }
+            PollutionObservation observation = result.observation();
+            if (observation != null && (!environmental.providerId().equals(observation.provider())
+                    || observation.observedAt() == null
+                    || Duration.between(queries.get(i).observedAt(), observation.observedAt()).abs().compareTo(Duration.ofMinutes(30)) > 0)) {
+                summary.unavailable(List.of("INVALID_PROVENANCE_OR_TIME"));
+                continue;
+            }
+            summary.add(i, observation, null, null, result.issues());
         }
-        return new Candidate(path, weights == 0 ? null : round(weighted / weights), null, null, environmental.providerId(),
-                available == samples.size() ? "complete" : available == 0 ? "unavailable" : "partial", environmental.providerId(), samples.size(), available, samples.size() - available,
-                samples.isEmpty() ? null : round(available * 100.0 / samples.size()));
+        return summary.result();
     }
 
-    private static GeographicCell nearest(Coordinate point, List<GeographicCell> cells) {
-        return cells.stream().min(Comparator.comparingDouble(c -> haversine(point, new Coordinate(c.latitude(), c.longitude())))).orElseThrow();
+    private GeographicCell nearest(Coordinate point, List<GeographicCell> cells) {
+        return cells.stream().filter(c -> RouteSampler.haversine(point, new Coordinate(c.latitude(), c.longitude()))
+                        <= environmentalProperties.getFixedCellCoverageRadiusMeters())
+                .min(Comparator.comparingDouble(c -> RouteSampler.haversine(point, new Coordinate(c.latitude(), c.longitude())))).orElse(null);
     }
 
-    private Ranked rank(Candidate c, RoutePreference pref, double maxDuration) {
+    private Ranked rank(Candidate c, RoutePreference pref, double maxDuration, boolean comparable) {
         double durationEfficiency = 100.0 * (1 - (double)c.path().estimatedDurationSeconds() / maxDuration);
         double cleanliness = c.exposure() == null ? 0 : clamp(100 - c.exposure());
         double exposure = c.exposure() == null ? 100 : c.exposure();
-        boolean pollutionAvailable = c.exposure() != null;
+        boolean pollutionAvailable = comparable && c.evidence().comparisonEligible();
         Double trafficComfort = c.congestionFactor() == null ? null : thresholdScore(c.congestionFactor(),
                 pref == RoutePreference.CYCLIST ? suitability.getCyclistMaximumCongestionFactor()
                         : suitability.getJoggerMaximumCongestionFactor(), 25);
@@ -276,7 +373,7 @@ public class RouteService {
         Double greenAreaPreference = c.path().greenAreaCoverage() == null ? null : clamp(100 * c.path().greenAreaCoverage());
         double score = switch (pref) {
             case FASTEST -> durationEfficiency;
-            case CLEANEST -> pollutionAvailable ? cleanliness : -1;
+            case CLEANEST -> pollutionAvailable ? cleanliness : durationEfficiency;
             case BALANCED -> pollutionAvailable ? 0.5 * durationEfficiency + 0.5 * cleanliness : durationEfficiency;
             case JOGGER -> weightedScore(
                     new double[]{thresholdScore(exposure, suitability.getJoggerMaximumPollutionExposure(), 2),
@@ -297,71 +394,78 @@ public class RouteService {
             default -> throw new IllegalArgumentException("Unsupported route preference");
         };
         return new Ranked(c, durationEfficiency, score, trafficComfort, distanceSuitability,
-                cyclingCompatibility, elevationSuitability, greenAreaPreference);
+                cyclingCompatibility, elevationSuitability, greenAreaPreference, pollutionAvailable);
     }
 
     private SelectionReason explanation(RoutePreference preference, int rank, int availableRoutes, Candidate route,
-                                        Candidate fastest, Candidate cleanest, boolean sufficientCleanestCoverage, List<Ranked> ranked,
-                                        List<Candidate> candidates) {
-        Candidate exposureComparator = candidates.stream().filter(c -> c != route && c.exposure() != null)
-                .min(Comparator.comparingDouble(Candidate::exposure)).orElse(null);
-        boolean exposureDistinguishes = candidates.stream().map(Candidate::exposure).filter(java.util.Objects::nonNull)
-                .distinct().count() > 1;
-        Candidate comparator = preference == RoutePreference.FASTEST ? cleanest : fastest;
+                                         Candidate fastest, boolean comparable, Ranked ranked,
+                                         List<Candidate> candidates) {
+        Candidate exposureComparator = comparable ? candidates.stream().filter(c -> c != route
+                        && c.evidence().comparisonEligible() && c.exposure() != null)
+                .min(Comparator.comparingDouble(Candidate::exposure)).orElse(null) : null;
         List<String> factors = switch (preference) {
-            case FASTEST -> List.of("Lowest estimated travel duration among returned routing candidates.");
-            case CLEANEST -> route.exposure() == null
-                    ? List.of("Environmental exposure is unavailable for this route.")
+            case FASTEST -> List.of("Ordered by estimated travel duration among returned routing candidates.");
+            case CLEANEST -> !comparable || !route.evidence().comparisonEligible()
+                    ? List.of("Environmental candidates were not comparable, so CLEANEST used duration as a safe fallback.")
                     : List.of("Exposure is route-distance-weighted at estimated passage times.",
-                    "Environmental coverage: " + route.available() + "/" + route.sampled() + " samples (" + route.coveragePercent() + "%).",
+                    "Environmental distance coverage: " + route.evidence().distanceCoveragePercent() + "%; pollutant coverage: "
+                            + route.evidence().pollutantCoveragePercent() + "%.",
                     "Environmental provenance: " + route.source() + ".");
-            case BALANCED -> List.of("Ranked using the existing equal-weight travel-time efficiency and pollution-cleanliness score.");
-            case JOGGER, CYCLIST -> reasons(preference, ranked.stream().filter(r -> r.candidate() == route).findFirst().orElseThrow(), route);
+            case BALANCED -> comparable
+                    ? List.of("Uses an equal-weight comparison: 50% duration efficiency and 50% modeled pollution cleanliness for every candidate.")
+                    : List.of("Environmental candidates were not comparable, so BALANCED used duration as a safe fallback.");
+            case JOGGER, CYCLIST -> reasons(preference, ranked, route);
         };
         String headline;
         String summary;
         if (preference == RoutePreference.CLEANEST && availableRoutes == 1) {
             headline = "No route comparison available";
             summary = "Only one routing candidate was available, so a cleanest-vs-alternatives comparison could not be established.";
-        } else if (preference == RoutePreference.CLEANEST && (!sufficientCleanestCoverage || cleanest == null)) {
-            headline = "Cleanest route could not be established";
-            summary = "Environmental data did not sufficiently distinguish the available routes, so a cleaner route could not be established.";
-        } else if (preference == RoutePreference.CLEANEST && !exposureDistinguishes) {
+        } else if ((preference == RoutePreference.CLEANEST || preference == RoutePreference.BALANCED) && !comparable) {
+            headline = preference == RoutePreference.CLEANEST ? "Cleanest route could not be established" : "Duration-only fallback";
+            summary = preference == RoutePreference.CLEANEST
+                    ? "Environmental data was incomplete or incomparable, so routes were ordered by duration without claiming a cleanest route."
+                    : "Environmental data was incomplete or incomparable, so the balanced comparison used duration without a pollution component.";
+        } else if (preference == RoutePreference.CLEANEST && candidates.stream().map(Candidate::exposure).distinct().count() == 1) {
             headline = "Environmental data did not distinguish the available routes";
-            summary = "Environmental data did not distinguish the available routes, so a cleaner route could not be established.";
+            summary = "Modeled exposures are tied; duration breaks ties. A uniquely cleaner route could not be established.";
         } else {
             headline = switch (preference) {
-                case FASTEST -> "Fastest available route";
+                case FASTEST -> rank == 1 ? "Fastest available route" : "Travel-time comparison";
                 case CLEANEST -> rank == 1 ? "Lowest modeled pollution exposure" : "Modeled exposure comparison";
-                case BALANCED -> "Best existing balanced score";
-                case JOGGER -> "Best jogger suitability score";
-                case CYCLIST -> "Best cyclist suitability score";
+                case BALANCED -> rank == 1 ? "Best balanced comparison" : "Balanced comparison";
+                case JOGGER -> rank == 1 ? "Best jogger suitability score" : "Jogger suitability comparison";
+                case CYCLIST -> rank == 1 ? "Best cyclist suitability score" : "Cyclist suitability comparison";
             };
             summary = switch (preference) {
                 case CLEANEST -> rank == 1
                         ? "Lowest modeled pollution exposure among " + availableRoutes + " available routing candidate" + (availableRoutes == 1 ? "." : "s.")
                         : "Ranked " + rank + " of " + availableRoutes + " candidates by modeled exposure.";
-                case FASTEST -> "Shortest estimated travel time among " + availableRoutes + " available routing candidate" + (availableRoutes == 1 ? "." : "s.");
-                case BALANCED -> "Selected by the existing balanced ranking across the returned routing candidates.";
+                case FASTEST -> rank == 1 ? "Shortest estimated travel time among returned candidates."
+                        : "Ranked " + rank + " of " + availableRoutes + " candidates by estimated travel time.";
+                case BALANCED -> rank == 1 ? "Selected by the balanced duration and pollution comparison."
+                        : "Ranked " + rank + " of " + availableRoutes + " candidates by the balanced comparison.";
                 default -> factors.getFirst();
             };
         }
-        Candidate exposureReference = preference == RoutePreference.CLEANEST ? exposureComparator : comparator;
-        Double exposureDifference = route.exposure() != null && exposureReference != null && exposureReference.exposure() != null
+        Candidate exposureReference = exposureComparator;
+        Double exposureDifference = comparable && route.exposure() != null && exposureReference != null && exposureReference.exposure() != null
                 && exposureReference.exposure() > 0 ? round(100 * (route.exposure() - exposureReference.exposure()) / exposureReference.exposure()) : null;
         Integer extraDuration = fastest == null ? null : route.path().estimatedDurationSeconds() - fastest.path().estimatedDurationSeconds();
         Double extraDistance = fastest == null ? null : round(route.path().distanceMeters() - fastest.path().distanceMeters());
         return new SelectionReason(preference.name(), headline, summary,
-                new RouteComparison(availableRoutes, rank, exposureDifference, extraDuration, extraDistance), factors);
+                new RouteComparison(availableRoutes, rank, exposureDifference, extraDuration, extraDistance,
+                        exposureReference == null ? null : exposureReference.path().alternativeId(), fastest == null ? null : fastest.path().alternativeId()), factors);
     }
 
     private List<String> reasons(RoutePreference preference, Ranked ranked, Candidate candidate) {
         return switch (preference) {
             case FASTEST -> List.of("Ranked by estimated travel time.", "Pollution exposure is reported but does not change FASTEST ordering.");
-            case CLEANEST -> candidate.exposure() == null ? List.of("Environmental coverage was unavailable; pollution ordering was not available.") : List.of("Ranked by route-distance-weighted pollution exposures evaluated at estimated passage times.", "Travel time is reported but does not change CLEANEST ordering.");
-            case BALANCED -> List.of("Balances normalized travel-time efficiency and pollution cleanliness equally.");
+            case CLEANEST -> !ranked.pollutionAvailable() ? List.of("Environmental candidates were incomplete or incomparable; CLEANEST used estimated duration without claiming lower pollution.") : List.of("Ranked by route-distance-weighted pollution exposures evaluated at estimated passage times.", "Duration breaks exposure ties; alternative ID breaks remaining ties.");
+            case BALANCED -> ranked.pollutionAvailable() ? List.of("Balances normalized travel-time efficiency and pollution cleanliness equally.") : List.of("Environmental candidates were incomplete or incomparable; BALANCED used estimated duration only.");
             case JOGGER -> {
                 List<String> reasons = new ArrayList<>(List.of("Ranks lower-pollution, lower-traffic routes and favors distances around the configured jogger range."));
+                if (!ranked.pollutionAvailable()) reasons.add("Pollution inputs were incomparable and excluded from all candidates' suitability scores.");
                 if (candidate.congestionFactor() == null) reasons.add("Traffic data is unavailable and was excluded from this score.");
                 if (!suitability.isPreferGreenAreas()) reasons.add("Green-area preference is disabled and its metadata was not used.");
                 else if (candidate.path().greenAreaCoverage() == null) reasons.add("Green-area metadata is unavailable and was not used.");
@@ -370,6 +474,7 @@ public class RouteService {
             }
             case CYCLIST -> {
                 List<String> reasons = new ArrayList<>(List.of("Ranks lower-pollution and lower-traffic routes."));
+                if (!ranked.pollutionAvailable()) reasons.add("Pollution inputs were incomparable and excluded from all candidates' suitability scores.");
                 if (candidate.congestionFactor() == null) reasons.add("Traffic data is unavailable and was excluded from this score.");
                 if (candidate.path().cyclingCompatible() == null) reasons.add("Cycling-compatibility metadata is unavailable and was not used.");
                 if (candidate.path().elevationGainMeters() == null) reasons.add("Elevation metadata is unavailable and was not used.");
@@ -383,7 +488,7 @@ public class RouteService {
     private Map<String, Double> components(Ranked ranked, Candidate candidate, RoutePreference preference) {
         Map<String, Double> values = new java.util.LinkedHashMap<>();
         values.put("durationEfficiency", ranked.durationEfficiency());
-        if (candidate.exposure() != null) {
+        if (candidate.exposure() != null && ranked.pollutionAvailable()) {
             values.put("pollutionCleanliness", clamp(100 - candidate.exposure()));
             values.put("expectedPollutionExposure", candidate.exposure());
         }
@@ -433,20 +538,14 @@ public class RouteService {
         long floor = Math.floorDiv(time.getEpochSecond(), 900) * 900;
         return Instant.ofEpochSecond(time.getEpochSecond() == floor ? floor : floor + 900);
     }
-    private static double haversine(Coordinate a, Coordinate b) {
-        double lat1 = Math.toRadians(a.latitude()), lat2 = Math.toRadians(b.latitude());
-        double dLat = lat2 - lat1, dLon = Math.toRadians(b.longitude() - a.longitude());
-        double h = Math.sin(dLat / 2) * Math.sin(dLat / 2) + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
-        return 6_371_000 * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
-    }
     private static double round(double n) { return Math.round(n * 100.0) / 100.0; }
     private static String coordinateName(Coordinate coordinate) {
         return String.format(Locale.ROOT, "%.5f, %.5f", coordinate.latitude(), coordinate.longitude());
     }
     private record Candidate(RoutePath path, Double exposure, Integer quality, Double congestionFactor,
                               String environmentalProvider, String coverage, String source, int sampled,
-                              int available, int unavailable, Double coveragePercent) {}
+                              int available, int unavailable, Double coveragePercent, EnvironmentalQuality evidence) {}
     private record Ranked(Candidate candidate, double durationEfficiency, double score, Double trafficComfort,
                           Double distanceSuitability, Double cyclingCompatibility, Double elevationSuitability,
-                          Double greenAreaPreference) {}
+                          Double greenAreaPreference, boolean pollutionAvailable) {}
 }

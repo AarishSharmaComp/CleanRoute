@@ -15,6 +15,11 @@ public interface EnvironmentalDataProvider {
 
     default boolean supportsCoordinateLookup() { return false; }
 
+    /** A comparison must contain these concentrations at every route sample. AQI alone is not comparable. */
+    default List<String> requiredComparisonPollutants() {
+        return com.cleanroute.observation.domain.ObservationModels.POLLUTANTS;
+    }
+
     default List<EnvironmentalCoordinateResult> observationsAt(List<EnvironmentalCoordinateQuery> queries) {
         throw ProviderFailureException.temporary();
     }

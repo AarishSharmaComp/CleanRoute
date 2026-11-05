@@ -25,6 +25,7 @@ services:
       JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env}
       GEOCODING_PROVIDER: ${GEOCODING_PROVIDER:-photon}
       PHOTON_API_URL: ${PHOTON_API_URL:-https://photon.komoot.io/api/}
+      GEOCODING_COVERAGE_RADIUS_METERS: ${GEOCODING_COVERAGE_RADIUS_METERS:-35000}
       ROUTING_PROVIDER: ${ROUTING_PROVIDER:-mock}
       OSRM_API_URL: ${OSRM_API_URL:-https://router.project-osrm.org}
       VALHALLA_API_URL: ${VALHALLA_API_URL:-https://valhalla1.openstreetmap.de}
@@ -36,6 +37,7 @@ services:
       ENVIRONMENTAL_CONNECT_TIMEOUT_MS: ${ENVIRONMENTAL_CONNECT_TIMEOUT_MS:-2000}
       ENVIRONMENTAL_READ_TIMEOUT_MS: ${ENVIRONMENTAL_READ_TIMEOUT_MS:-5000}
       ENVIRONMENTAL_ROUTE_SAMPLE_INTERVAL_METERS: ${ENVIRONMENTAL_ROUTE_SAMPLE_INTERVAL_METERS:-250}
+      ENVIRONMENTAL_FIXED_CELL_COVERAGE_RADIUS_METERS: ${ENVIRONMENTAL_FIXED_CELL_COVERAGE_RADIUS_METERS:-35000}
     ports:
       - "${BACKEND_PORT:-8080}:8080"
     depends_on:
@@ -50,6 +52,10 @@ services:
     build: { context: ./frontend }
     environment:
       VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8080}
+      CHOKIDAR_USEPOLLING: "true"
+    volumes:
+      - ./frontend:/app
+      - frontend-node-modules:/app/node_modules
     ports:
       - "${FRONTEND_PORT:-5173}:5173"
     depends_on:
@@ -62,3 +68,4 @@ services:
       start_period: 20s
 volumes:
   postgres-data:
+  frontend-node-modules:

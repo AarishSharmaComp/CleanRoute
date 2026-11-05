@@ -31,6 +31,7 @@ app:
     connect-timeout-ms: ${ENVIRONMENTAL_CONNECT_TIMEOUT_MS:2000}
     read-timeout-ms: ${ENVIRONMENTAL_READ_TIMEOUT_MS:5000}
     route-sample-interval-meters: ${ENVIRONMENTAL_ROUTE_SAMPLE_INTERVAL_METERS:250}
+    fixed-cell-coverage-radius-meters: ${ENVIRONMENTAL_FIXED_CELL_COVERAGE_RADIUS_METERS:35000}
   pollution:
     scoring:
       aqi-index-max: 500

@@ -68,13 +68,13 @@ class RouteCoordinateExposureTest {
         when(env.providerId()).thenReturn("open-meteo-air-quality");
         when(env.supportsCoordinateLookup()).thenReturn(true);
         when(env.observationsAt(anyList())).thenAnswer(call -> {
-            List<EnvironmentalCoordinateQuery> queries = call.getArgument(0);
+                List<EnvironmentalCoordinateQuery> queries = call.getArgument(0);
             assertThat(queries).hasSize(2);
             assertThat(queries.get(0).observedAt()).isBefore(queries.get(1).observedAt());
             assertThat(java.time.Duration.between(queries.get(0).observedAt(), queries.get(1).observedAt()).toSeconds())
                     .isEqualTo(900);
-            return queries.stream().map(q -> new EnvironmentalCoordinateResult(q,
-                    new PollutionObservation("coordinate", q.observedAt(), null, 17.5, 24.0, null, null, null, null,
+                return queries.stream().map(q -> new EnvironmentalCoordinateResult(q,
+                    new PollutionObservation("coordinate", q.observedAt(), null, 17.5, 24.0, 20.0, 10.0, 0.5, 30.0,
                             "open-meteo-air-quality", false))).toList();
         });
         var result = service(routing, env).calculate(request(), UUID.randomUUID());
